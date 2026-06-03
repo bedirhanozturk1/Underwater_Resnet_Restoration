@@ -17,12 +17,12 @@ env/
 .env.*
 
 # Data and generated artifacts
-data/
-datasets/
-checkpoints/
-results/
-logs/
-runs/
+/data/
+/datasets/
+/checkpoints/
+/results/
+/logs/
+/runs/
 *.pt
 *.pth
 *.ckpt
