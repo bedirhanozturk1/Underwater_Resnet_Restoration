@@ -1,0 +1,21 @@
+experiment_name: baseline_unet
+model:
+  name: conditional_unet
+  in_channels: 6
+  out_channels: 3
+  base_channels: 64
+diffusion:
+  timesteps: 300
+  sampling_steps: 50
+training:
+  image_size: 128
+  batch_size: 2
+  epochs: 5
+  learning_rate: 0.0001
+  seed: 42
+paths:
+  dataset_root: data/datasets
+  split_dir: data/splits
+  checkpoint_dir: checkpoints/baseline_unet
+  result_dir: results/baseline_unet
+  log_dir: logs/baseline_unet
