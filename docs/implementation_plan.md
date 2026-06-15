@@ -106,7 +106,7 @@ validation: 10%
 test: 10%
 ```
 
-The split must be filename-based and reproducible using a fixed random seed.
+The split must be filename-based and reproducible using a fixed random seed. Because the paired dataset is patch-based, the implementation should also avoid patch-level leakage where possible. If original scene or source-image identifiers become available, all patches from the same source should be assigned to the same split instead of being distributed across train, validation, and test sets.
 
 ## Model Strategy
 
@@ -141,7 +141,7 @@ Proposed model:
 Conditional ResNet-style residual denoising backbone
 ```
 
-The proposed model should use the same dataset, optimizer, image size, diffusion schedule, and evaluation metrics as the baseline to keep the comparison fair.
+The proposed model is not a standalone image classifier. It is a conditional diffusion denoising backbone that receives the noisy image, the turbid input condition, and the diffusion timestep embedding. The proposed model should use the same dataset, optimizer, image size, diffusion schedule, loss formulation, and evaluation metrics as the baseline to keep the comparison fair.
 
 ## Checkpoint 1: Dataset And Project Setup
 
@@ -323,15 +323,15 @@ Core metrics:
 PSNR: higher is better
 SSIM: higher is better
 MSE/MAE: lower is better
-Delta E: lower is better
-Entropy: higher usually indicates richer information content
-NIQE: lower is better, optional depending on dependency stability
+Delta E: lower is better; the implemented version is CIE76 unless changed later
+Entropy: supporting indicator only, because noise can also increase entropy
+NIQE: supporting indicator only, optional depending on dependency stability
 ```
 
 Final table format:
 
 ```text
-Method              PSNR up   SSIM up   Delta E down   Entropy up   NIQE down
+Method              PSNR up   SSIM up   Delta E down   Entropy   NIQE
 Turbid input         ...      ...       ...            ...          ...
 Baseline U-Net       ...      ...       ...            ...          ...
 Residual backbone    ...      ...       ...            ...          ...
@@ -364,8 +364,8 @@ loss: MSE noise prediction loss
 
 ## Immediate Next Steps
 
-1. Implement Checkpoint 1 dataset verification.
-2. Generate `dataset_report.txt`.
-3. Generate `dataset_pair_samples.png`.
-4. Add `docs/progress/checkpoint1_dataset_setup.md` with the first real results.
-5. Move to the DataLoader and diffusion sanity tests.
+1. Prepare Google Drive dataset/checkpoint/log/result folders.
+2. Add full training scripts for baseline and residual models.
+3. Add an evaluation script that loads checkpoints and writes final metrics/results.
+4. Add a Colab notebook that mounts Drive, clones the repository, verifies paths, trains models, and saves outputs to Drive.
+5. Run longer baseline and residual training on Colab/A100 if available.
