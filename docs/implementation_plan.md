@@ -47,6 +47,16 @@ metric outputs
 large generated figures
 ```
 
+The full-run entry points are:
+
+```text
+scripts/train_model.py --model baseline|residual
+scripts/evaluate_model.py
+scripts/run_inference.py
+```
+
+These scripts are designed for Colab + Google Drive. They save `latest.pth`, `best.pth`, and `training.csv` under the configured Drive checkpoint/log folders and support `--resume` from `latest.pth`.
+
 ## Project Structure
 
 ```text
@@ -107,6 +117,8 @@ test: 10%
 ```
 
 The split must be filename-based and reproducible using a fixed random seed. Because the paired dataset is patch-based, the implementation should also avoid patch-level leakage where possible. If original scene or source-image identifiers become available, all patches from the same source should be assigned to the same split instead of being distributed across train, validation, and test sets.
+
+The teacher-provided `DATASET CODES DOSYA PAYLASIMI` materials and the referenced Iqbal repository were inspected before the full-training stage. Their videos are used for CLAHE/denoising demos, frame inference, and reconstructed output videos, while the diffusion notebooks/code operate on image folders. This supports keeping the 3672 filename-paired clear/turbid patch images as the supervised training set and using videos/unpaired frames only for qualitative inference or supplementary evidence.
 
 ## Model Strategy
 
