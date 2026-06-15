@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import time
 from pathlib import Path
 
 import torch
@@ -34,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", type=Path, default=None)
+    parser.add_argument("--print-every", type=int, default=20, help="Print progress every N batches.")
     parser.add_argument("--max-train-batches", type=int, default=0, help="Optional debug limit; 0 means full epoch.")
     parser.add_argument("--max-val-batches", type=int, default=0, help="Optional debug limit; 0 means full validation.")
     return parser.parse_args()
@@ -69,8 +71,33 @@ def main() -> None:
     _ensure_log(log_path)
 
     for epoch in range(start_epoch, args.epochs + 1):
-        train_loss = _run_epoch(model, train_loader, schedule, optimizer, device, train=True, max_batches=args.max_train_batches)
-        val_loss = _run_epoch(model, val_loader, schedule, optimizer, device, train=False, max_batches=args.max_val_batches)
+        print(f"starting epoch {epoch}/{args.epochs}", flush=True)
+        train_loss = _run_epoch(
+            model,
+            train_loader,
+            schedule,
+            optimizer,
+            device,
+            train=True,
+            max_batches=args.max_train_batches,
+            print_every=args.print_every,
+            phase="train",
+            epoch=epoch,
+            epochs=args.epochs,
+        )
+        val_loss = _run_epoch(
+            model,
+            val_loader,
+            schedule,
+            optimizer,
+            device,
+            train=False,
+            max_batches=args.max_val_batches,
+            print_every=args.print_every,
+            phase="val",
+            epoch=epoch,
+            epochs=args.epochs,
+        )
         is_best = val_loss < best_val_loss
         if is_best:
             best_val_loss = val_loss
@@ -94,7 +121,7 @@ def main() -> None:
         if is_best:
             torch.save(checkpoint, run_checkpoint_dir / "best.pth")
 
-        print(f"epoch {epoch}/{args.epochs} train_loss={train_loss:.6f} val_loss={val_loss:.6f} best={best_val_loss:.6f}")
+        print(f"epoch {epoch}/{args.epochs} train_loss={train_loss:.6f} val_loss={val_loss:.6f} best={best_val_loss:.6f}", flush=True)
 
 
 def _make_loader(args: argparse.Namespace, split: str, shuffle: bool) -> DataLoader:
@@ -108,10 +135,24 @@ def _make_loader(args: argparse.Namespace, split: str, shuffle: bool) -> DataLoa
     return DataLoader(dataset, batch_size=args.batch_size, shuffle=shuffle, num_workers=args.num_workers, pin_memory=torch.cuda.is_available())
 
 
-def _run_epoch(model, loader, schedule, optimizer, device: torch.device, train: bool, max_batches: int = 0) -> float:
+def _run_epoch(
+    model,
+    loader,
+    schedule,
+    optimizer,
+    device: torch.device,
+    train: bool,
+    max_batches: int = 0,
+    print_every: int = 20,
+    phase: str = "train",
+    epoch: int = 0,
+    epochs: int = 0,
+) -> float:
     model.train(train)
     total_loss = 0.0
     batch_count = 0
+    start_time = time.time()
+    total_batches = min(len(loader), max_batches) if max_batches > 0 else len(loader)
     for batch in loader:
         if max_batches > 0 and batch_count >= max_batches:
             break
@@ -128,7 +169,34 @@ def _run_epoch(model, loader, schedule, optimizer, device: torch.device, train: 
                 optimizer.step()
         total_loss += float(loss.detach().cpu().item())
         batch_count += 1
+        if _should_print_progress(batch_count, total_batches, print_every):
+            mean_loss = total_loss / max(batch_count, 1)
+            elapsed = time.time() - start_time
+            eta = (elapsed / batch_count) * max(total_batches - batch_count, 0)
+            percent = 100.0 * batch_count / max(total_batches, 1)
+            print(
+                f"epoch {epoch}/{epochs} {phase} batch {batch_count}/{total_batches} "
+                f"({percent:.1f}%) loss={mean_loss:.6f} elapsed={_format_seconds(elapsed)} eta={_format_seconds(eta)}",
+                flush=True,
+            )
     return total_loss / max(batch_count, 1)
+
+
+def _should_print_progress(batch_count: int, total_batches: int, print_every: int) -> bool:
+    if print_every <= 0:
+        return False
+    return batch_count == 1 or batch_count == total_batches or batch_count % print_every == 0
+
+
+def _format_seconds(seconds: float) -> str:
+    seconds = int(max(seconds, 0))
+    minutes, sec = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{sec:02d}s"
+    if minutes:
+        return f"{minutes}m{sec:02d}s"
+    return f"{sec}s"
 
 
 def _ensure_log(log_path: Path) -> None:
