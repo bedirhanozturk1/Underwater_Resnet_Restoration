@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
 from pathlib import Path
 
@@ -25,18 +26,17 @@ REPORT_ASSETS = PROJECT_ROOT / "report_assets"
 COLAB_RESULTS = PROJECT_ROOT / "colab_results"
 DELIVERABLES = PROJECT_ROOT / "final_deliverables"
 REPORT_TEMPLATE = PROJECT_ROOT / "myfriendsproject" / "04-4902-Project_Report_Template.docx"
-GROUPED_SUMMARY = PROJECT_ROOT / "upload_to_drive" / "underwater_resnet_project" / "experiments" / "grouped_v1" / "summaries" / "metric_summary_mean_std.csv"
+GROUPED_SUMMARY_CANDIDATES = (
+    PROJECT_ROOT / "metric_summary_mean_std.csv",
+    PROJECT_ROOT / "upload_to_drive" / "underwater_resnet_project" / "experiments" / "grouped_v1" / "summaries" / "metric_summary_mean_std.csv",
+)
+GROUPED_MANIFEST = PROJECT_ROOT / "upload_to_drive" / "underwater_resnet_project" / "experiments" / "grouped_v1" / "split" / "split_manifest.json"
+GROUPED_CONTEXT: dict[str, object] | None = None
+
+
 def main() -> None:
-    if not GROUPED_SUMMARY.exists():
-        raise FileNotFoundError(
-            "Grouped 3-model x 3-seed results are not available. The existing report contains "
-            "superseded random-split results; complete scripts/run_grouped_experiments.py before regenerating deliverables. "
-            f"Expected: {GROUPED_SUMMARY}"
-        )
-    raise RuntimeError(
-        "Grouped results exist, but this generator still contains superseded random-split narrative. "
-        "Update the report tables and conclusions from metric_summary_mean_std.csv before generating submission files."
-    )
+    global GROUPED_CONTEXT
+    GROUPED_CONTEXT = load_grouped_context()
     DELIVERABLES.mkdir(parents=True, exist_ok=True)
     REPORT_OUTPUTS.mkdir(parents=True, exist_ok=True)
     create_compact_comparison_assets()
@@ -45,6 +45,37 @@ def main() -> None:
     create_presentation_pptx()
     create_submission_readme()
     print(f"Final deliverables written to: {DELIVERABLES}")
+
+
+def load_grouped_context() -> dict[str, object]:
+    summary_path = next((path for path in GROUPED_SUMMARY_CANDIDATES if path.exists()), None)
+    if summary_path is None:
+        raise FileNotFoundError("Grouped aggregate summary is missing: metric_summary_mean_std.csv")
+    if not GROUPED_MANIFEST.exists():
+        raise FileNotFoundError(f"Grouped split manifest is missing: {GROUPED_MANIFEST}")
+    with summary_path.open(newline="", encoding="utf-8") as handle:
+        rows = {row["model"]: row for row in csv.DictReader(handle)}
+    expected = {"baseline_b32", "param_matched_unet_b42", "residual_b32"}
+    if set(rows) != expected:
+        raise ValueError(f"Expected grouped models {sorted(expected)}, got {sorted(rows)}")
+    for name, row in rows.items():
+        if row["runs"] != "3" or row["n_per_run"] != "384":
+            raise ValueError(f"Unexpected grouped aggregate for {name}: {row}")
+    manifest = json.loads(GROUPED_MANIFEST.read_text(encoding="utf-8"))
+    if manifest.get("split_id") != "grouped_v1_contiguous_24":
+        raise ValueError("Unexpected split manifest")
+    return {"rows": rows, "manifest": manifest}
+
+
+def grouped_row(model: str) -> dict[str, str]:
+    if GROUPED_CONTEXT is None:
+        raise RuntimeError("Grouped results have not been loaded")
+    return GROUPED_CONTEXT["rows"][model]  # type: ignore[index, return-value]
+
+
+def grouped_metric(model: str, metric: str) -> str:
+    row = grouped_row(model)
+    return f"{float(row[f'{metric}_mean']):.6f} +/- {float(row[f'{metric}_std']):.6f}"
 
 
 def create_docx_report() -> None:
@@ -88,6 +119,8 @@ def replace_template_cover(doc: Document) -> None:
         text = paragraph.text.strip()
         if text in replacements:
             set_paragraph_text(paragraph, replacements[text], keep_style=True)
+        elif "Artifical" in paragraph.text:
+            set_paragraph_text(paragraph, paragraph.text.replace("Artifical", "Artificial"), keep_style=True)
 
 
 def rebuild_template_contents(doc: Document) -> None:
@@ -142,14 +175,12 @@ def rebuild_template_contents(doc: Document) -> None:
         ("5.4", "Model Development Timeline", "18"),
         ("6", "RESULTS AND EVALUATION", "20"),
         ("6.1", "Main Quantitative Results", "20"),
-        ("6.2", "Default Baseline vs Residual", "21"),
-        ("6.3", "Parameter-Matched Capacity Control", "23"),
-        ("6.4", "Training Duration Ablation", "24"),
-        ("6.5", "Resolution Ablation", "25"),
-        ("6.6", "Qualitative and Cross-Dataset Scope", "27"),
-        ("6.7", "Limitations", "28"),
-        ("7", "CONCLUSIONS AND FUTURE WORKS", "30"),
-        ("8", "REFERENCES", "32"),
+        ("6.2", "Default Baseline vs Residual", "20"),
+        ("6.3", "Parameter-Matched Capacity Control", "20"),
+        ("6.4", "Qualitative and Cross-Dataset Scope", "21"),
+        ("6.5", "Limitations", "21"),
+        ("7", "CONCLUSIONS AND FUTURE WORKS", "23"),
+        ("8", "REFERENCES", "25"),
     ]
     anchor = contents_heading._element
     for number, title, page in entries:
@@ -318,9 +349,9 @@ def add_summary(doc: Document) -> None:
     preamble_heading(doc, "SUMMARY")
     paragraphs(doc, [
         "Underwater imaging supports inspection, observation, robotics, scientific documentation, and monitoring, but the water medium changes the signal before it reaches a camera. Wavelength-dependent absorption removes color components at different rates, suspended particles scatter light, and turbidity lowers contrast while obscuring boundaries. This project addresses a supervised version of that restoration problem: given a turbid underwater color-patch image, produce an image that approaches its paired clear reference. The work does not claim to invert every physical process in arbitrary ocean scenes. Instead, it evaluates whether a residual denoising architecture is useful inside one controlled conditional diffusion pipeline.",
-        "The dataset contains 3,672 filename-matched turbid and clear pairs. A fixed split allocates 2,937 pairs to training, 367 to validation, and 368 to testing. Images are converted to RGB, resized to the configured square resolution, converted to tensors, and normalized to [-1, 1]. During diffusion training, Gaussian noise is added to the clear target at a randomly selected one of 100 timesteps. The denoiser receives the noisy target, the turbid condition, and a sinusoidal timestep representation, then predicts the sampled noise. Mean squared noise-prediction error is optimized. This formulation and the data protocol remain constant when the denoising backbone changes.",
-        "The default baseline is a two-level conditional U-Net with base width 32. The proposed model uses the same encoder-decoder scale structure but replaces ordinary convolution blocks with residual blocks and includes a second residual bottleneck block. The resulting models have approximately 527,363 and 886,371 trainable parameters, respectively. Because this difference could confound an architectural comparison, a base-width-42 U-Net with approximately 901,797 parameters is evaluated as a capacity control. Additional experiments examine 100 rather than 50 epochs and 256 rather than 128 pixel inputs. Every reported metric is measured on the same 368 paired test items.",
-        "At 128 pixels and 50 epochs, the residual model improves the default U-Net from 0.039444 to 0.035727 MSE, from 15.681501 to 16.304393 dB PSNR, from 0.610758 to 0.788963 SSIM, and from 29.645203 to 26.840257 CIE76 Delta E. The parameter-matched U-Net, however, records slightly better MSE, MAE, and PSNR than the residual model, while the residual model remains better in SSIM, Delta E, and output entropy. The defensible conclusion is therefore metric-specific: residual processing improves structural similarity and color-difference behavior over both the default baseline and the capacity control in this experiment, but increased U-Net capacity is competitive or better for direct pixel error. External scenes are shown only as input-condition examples; no cross-dataset restoration claim is made.",
+        "The dataset contains 3,672 filename-matched turbid and clear pairs. The active protocol infers 153 contiguous 24-patch source groups from the repeated chart structure and numeric filenames, assigns 122/15/16 groups to train/validation/test, and removes 32 exact clear+turbid duplicate pairs with test, then validation, then training retention priority. The resulting lists contain 2,899 training, 357 validation, and 384 test pairs. This grouping is inferential because no acquisition manifest was available; it reduces observed patch-level leakage but does not prove physical-session independence.",
+        "The default baseline is a two-level conditional U-Net with base width 32. The proposed model uses the same encoder-decoder scale structure but replaces ordinary convolution blocks with residual blocks and includes a second residual bottleneck block. A base-width-42 U-Net provides an approximately parameter-matched capacity control. Each of the three models was trained for 50 epochs with seeds 42, 123, and 2026, then evaluated on the same 384-pair test list using reverse-sampling seed 2026. Reported values are mean +/- sample standard deviation across training seeds.",
+        f"The residual model improves the default U-Net in structural and color-oriented averages: SSIM is {grouped_metric('baseline_b32', 'ssim')} versus {grouped_metric('residual_b32', 'ssim')}, and CIE76 Delta E is {grouped_metric('baseline_b32', 'delta_e_cie76')} versus {grouped_metric('residual_b32', 'delta_e_cie76')}. The parameter-matched U-Net has the best mean MSE, MAE, and PSNR, while the residual model has the best mean SSIM and Delta E. This is a metric-specific comparison, not evidence that residual shortcuts alone cause the differences: capacity, depth, and block topology differ. Entropy is retained only as an unranked descriptive output statistic. External scenes are not used for cross-dataset restoration claims.",
     ])
 
 
@@ -330,7 +361,7 @@ def add_introduction(doc: Document) -> None:
         "A camera used in air observes light after it has interacted with surfaces and traveled through a comparatively transparent medium. Underwater, the propagation path itself becomes a major part of image formation. Water absorbs long wavelengths strongly, suspended particles redirect light, and illumination varies with depth, distance, and local geometry. Consequently, an underwater photograph can exhibit a blue-green cast, muted warm colors, low global contrast, reduced local edge contrast, haze-like veiling, and spatially varying degradation at the same time. These effects are not merely cosmetic. They can make boundaries, markings, instruments, organisms, and man-made structures harder to inspect visually and harder to process with later computer-vision systems.",
         "Underwater image enhancement and restoration are related but distinct objectives. Enhancement seeks a visually preferable result and can operate without a known clean target. Restoration is more naturally framed as estimating a less degraded observation from a measurement and, where available, a reference. The present project uses paired supervision: each turbid color-patch photograph is associated by filename with a corresponding clearer photograph. This design gives a measurable target and permits full-reference metrics. It also narrows the scope. The learned relationship is grounded in the paired acquisition represented by this dataset and should not be described as a universal physical solution for all water types, cameras, depths, or natural scenes.",
         "The engineering question is whether the denoising backbone of a conditional diffusion model benefits from explicit residual learning. Denoising diffusion probabilistic models learn a reverse process by predicting noise applied through a known forward schedule [1]. A conditional restoration variant can make that prediction while observing a degraded image. U-Net architectures are a natural baseline because their contracting path, expanding path, and skip connections combine broad context with spatial detail [2]. Residual networks provide another form of shortcut: a block learns a correction relative to an identity or projected signal, which can ease optimization and preserve information [3]. This project places those ideas in the same implementation and evaluates their consequences under a shared protocol.",
-        "The core comparison uses 128 by 128 inputs, 50 epochs, a batch size of 16, a learning rate of 0.0001, seed 42, and a 100-step linear diffusion schedule. The default U-Net and residual model both receive six channels formed by concatenating a three-channel noisy target with the three-channel turbid condition. Their output is a three-channel noise estimate. Test results cover MSE, MAE, PSNR, SSIM, CIE76 Delta E, and entropy. The report gives special attention to the parameter-matched U-Net because the proposed model contains more parameters than the default baseline. Without this control, an apparent residual benefit might simply reflect additional capacity.",
+        "The core comparison uses 128 by 128 inputs, 50 epochs, a batch size of 16, a learning rate of 0.0001, training seeds 42, 123, and 2026, and a 100-step linear diffusion schedule. The default U-Net and residual model both receive six channels formed by concatenating a three-channel noisy target with the three-channel turbid condition. Their output is a three-channel noise estimate. Test results cover MSE, MAE, PSNR, SSIM, and CIE76 Delta E; output entropy is descriptive only. The report gives special attention to the parameter-matched U-Net because the proposed model contains more parameters than the default baseline. Without this control, an apparent residual benefit might simply reflect additional capacity.",
     ])
     add_picture(doc, REPORT_ASSETS / "summary_options" / "option_7_three_condition_color_chart.png", 6.7)
     caption(doc, "Figure 1-1: Real color-chart observations under three acquisition conditions; these are source-condition images, not model outputs")
@@ -341,7 +372,7 @@ def add_introduction(doc: Document) -> None:
     caption(doc, "Figure 1-2: Real USAF resolution-target observations under three acquisition conditions; these are source-condition images, not model outputs")
     paragraphs(doc, [
         "The USAF target in Figure 1-2 illustrates the structural side of degradation. Bars that are distinct under a favorable condition become less separable as scattering and turbidity suppress local contrast. Again, these panels document acquisition conditions rather than generated restorations. Their role is to connect the numerical use of SSIM with a practical concern: a useful restoration should retain or recover meaningful spatial organization rather than merely shift average color or reduce a pixel-wise loss.",
-        "The project contribution is a controlled implementation study rather than a claim of state-of-the-art performance. It provides a reproducible paired-data pipeline, a conditional diffusion baseline, a residual alternative, a parameter-count control, duration and resolution ablations, quantitative evaluation on a fixed test set, and cautious qualitative examination outside the paired distribution. The main finding is that the residual backbone is clearly preferable to the small default baseline on the selected structural and color-oriented measurements. The capacity control qualifies that statement by showing that a wider U-Net can lead on MSE, MAE, and PSNR. This distinction between architectural behavior and raw capacity is central to the report.",
+        "The project contribution is a controlled implementation study rather than a claim of state-of-the-art performance. It provides a reproducible paired-data pipeline, a source-group-aware split with duplicate audit, a conditional diffusion baseline, a residual alternative, a parameter-count control, and three-seed quantitative evaluation. The residual backbone has better mean structural similarity and color difference than both U-Net configurations, whereas the parameter-matched U-Net has better mean pixel-error metrics. This distinction between metric profile and raw capacity is central to the report.",
         "The remainder of the report follows eight sections. Section 2 reviews underwater formation, restoration families, U-Net and residual architectures, diffusion restoration, and the selected metrics. Section 3 defines requirements, constraints, and evaluation rules. Section 4 describes the system architecture. Section 5 records dataset preparation, preprocessing, training, and model-development stages. Section 6 presents all measured results, ablations, qualitative evidence, and limitations. Section 7 states conclusions and realistic future work, while Section 8 lists the literature used to support the technical discussion.",
     ])
 
@@ -386,7 +417,7 @@ def add_background(doc: Document) -> None:
         "No single full-reference metric captures every desirable property. Mean squared error averages squared channel-wise pixel differences and strongly penalizes large deviations. Mean absolute error averages absolute differences and is less dominated by outliers. Peak signal-to-noise ratio is a logarithmic transformation related to MSE for a fixed data range; it is reported in decibels, with a higher value indicating lower pixel error. PSNR is convenient and widely recognizable, but equal MSE or PSNR can correspond to visually different distortions, and neither explicitly models structure or perception [13].",
         "Structural Similarity compares local luminance, contrast, and structure rather than treating all pixel errors independently [14]. SSIM is bounded in common use, and higher values indicate closer structural agreement. It is particularly relevant to the USAF-target motivation, where preservation of neighboring bars and boundaries matters. Nevertheless, SSIM remains a mathematical index with choices of window and implementation. A high value should not be equated automatically with perfect perceptual quality, physical correctness, or downstream-task utility.",
         "CIE76 Delta E measures Euclidean distance between colors represented in CIELAB space [15], [16]. Lower Delta E indicates a smaller average color difference under that representation. CIELAB was designed to be more perceptually organized than raw RGB, making Delta E useful for chart-like data where hue and lightness recovery matter. CIE76 is the simplest Delta E formula and is not perfectly perceptually uniform; later formulas such as CIEDE2000 account for known nonuniformities. The report therefore names the exact CIE76 variant rather than using the ambiguous label color error.",
-        "Entropy summarizes the distribution of output intensity values and is included as a descriptive statistic. It is not a full-reference quality measure and has no universal better direction: high entropy may indicate retained detail or noise, while low entropy may indicate smoothness or lost texture. In this dataset, lower restored-output entropy accompanies the residual model's lower color error and higher SSIM, which is consistent with reduced noisy variation. That relationship is interpretive rather than definitive. The conclusions consequently rely most heavily on paired MSE, MAE, PSNR, SSIM, and Delta E, while treating entropy as supporting evidence.",
+        "Entropy summarizes the distribution of output intensity values and is included as a descriptive statistic. It is not a full-reference quality measure and has no universal better direction: high entropy may indicate retained detail or noise, while low entropy may indicate smoothness or lost texture. It is not used to select a model or support a quality-leader claim. Conclusions rely on paired MSE, MAE, PSNR, SSIM, and Delta E.",
     ])
 
 
@@ -395,7 +426,7 @@ def add_system_requirements(doc: Document) -> None:
     subheading(doc, "3.1 Design Constraints and Relevant Engineering Standards")
     paragraphs(doc, [
         "The first design constraint is data availability. Quantitative supervision requires aligned degraded and reference images, and only the 3,672 verified pairs support the measured restoration task. Auxiliary underwater scenes and video-derived frames lack corresponding clear targets. They may be inspected qualitatively but cannot enter full-reference metric tables. This separation is an evaluation constraint as well as a scientific-integrity requirement: assigning fabricated targets or comparing an external output with an unrelated image would produce meaningless numbers.",
-        "Compute and storage impose a second constraint. Full experiments were conducted in Google Colab with A100 availability, while checkpoints, datasets, logs, and generated samples were kept outside the source repository. The selected 128-pixel main resolution, batch size 16, compact networks, and 100 diffusion steps balance feasibility with a meaningful architecture comparison. A 256-pixel ablation tests one higher-resolution setting but does not turn the system into an arbitrary-resolution production service. The implementation processes square RGB images and has no video-temporal component.",
+        "Compute and storage impose a second constraint. Full experiments were conducted in Google Colab with A100 availability, while checkpoints, datasets, logs, and generated samples were kept outside the source repository. The selected 128-pixel resolution, batch size 16, compact networks, and 100 diffusion steps balance feasibility with a meaningful architecture comparison. The implementation processes square RGB images and has no video-temporal component.",
         "Reproducibility requirements follow ordinary engineering and trustworthy-ML practice. Configurations record model names, widths, diffusion steps, image size, batch size, epochs, learning rate, seed, and artifact paths. Fixed filename lists define splits. The same test items are used for all table rows. Results are reported with configuration labels rather than selected anonymous runs. These practices are consistent with transparency and traceability principles emphasized in trustworthy AI guidance such as the NIST AI Risk Management Framework [17], although this student prototype is not a claim of formal framework compliance or safety certification.",
         "Image values are represented as RGB tensors normalized to [-1, 1], and evaluation outputs are returned to a bounded display range. Metric names include their direction and, for color, the exact Delta E variant. Dataset scope and limitations are disclosed. No claim is made that the model meets subsea operational safety, metrology, or autonomous-navigation standards. Such deployment would require camera calibration, environmental testing, robustness analysis, latency assessment, failure detection, and application-specific verification beyond the present study.",
     ])
@@ -414,20 +445,20 @@ def add_system_requirements(doc: Document) -> None:
         "The data subsystem shall discover clear and turbid image directories, read a prescribed split file, and return corresponding items by the same filename. It shall reject a missing or empty split file and raise an error if a requested paired image is absent. Each item shall contain a normalized clear tensor, normalized turbid tensor, and filename. Optional horizontal augmentation shall apply the same flip to both members of a pair so spatial correspondence is never broken.",
         "The training subsystem shall sample a valid diffusion timestep for every item in a batch, generate a noisy target using the schedule, pass the noisy target, turbid condition, and timesteps to the selected model, and minimize noise-prediction loss. It shall support at least the conditional U-Net and residual model through the model factory and configurable base width. Checkpoint and log paths shall be independent of source code so full Colab artifacts can remain in external storage.",
         "The evaluation subsystem shall restore every item in the fixed test list and aggregate MSE, MAE, PSNR, SSIM, CIE76 Delta E, and entropy. It shall record the number of evaluated examples. Qualitative output shall preserve enough ordering information to compare turbid input, restored result, and clear reference for the same filename. Report generation shall consume the frozen CSV rather than silently invent or round-trip new metrics.",
-        "The reporting subsystem shall identify which panels are dataset conditions and which are generated model outputs. It shall show the default comparison, capacity control, duration ablation, and resolution ablation. It shall retain the official institutional cover, provide readable tables and compact figures, and state the central result without universal superiority claims. The executable report generator and source configurations provide the reproducible path from frozen artifacts to the final document.",
+        "The reporting subsystem shall identify which panels are dataset conditions and which are generated model outputs. It shall show the default comparison and capacity control, retain the official institutional cover, provide readable tables and compact figures, and state the central result without universal superiority claims. The executable report generator and source configurations provide the reproducible path from frozen artifacts to the final document.",
     ])
     subheading(doc, "3.3 Non-Functional Requirements")
     paragraphs(doc, [
-        "Reproducibility is the leading non-functional requirement. Seed 42, fixed split files, explicit YAML configurations, deterministic filenames, and a single metric summary make comparisons auditable. Complete bitwise repeatability on different GPU software stacks is not guaranteed, but a future runner can identify the intended setup and rerun it. Maintainability is supported by separating data, models, diffusion, sampling, training, evaluation, and scripts rather than embedding all logic in one notebook.",
+        "Reproducibility is the leading non-functional requirement. Three training seeds, a fixed grouped split manifest, explicit YAML configurations, deterministic filenames, completion manifests, and an aggregate metric summary make comparisons auditable. Complete bitwise repeatability on different GPU software stacks is not guaranteed, but a future runner can identify the intended setup and rerun it. Maintainability is supported by separating data, models, diffusion, sampling, training, evaluation, and scripts rather than embedding all logic in one notebook.",
         "Correctness is protected by lightweight automated tests for pairing, data loading, diffusion behavior, model forward passes, metrics, and a training step. Shape checks matter because both models concatenate a noisy RGB tensor and a conditional RGB tensor, then must return exactly three channels at the original spatial resolution. Input validation covers invalid diffusion step counts, timestep shapes, missing files, and empty splits. These checks do not replace end-to-end visual inspection, but they reduce the likelihood of reporting results from a structurally incorrect pipeline.",
         "Usability and clarity apply to generated artifacts. A report reader should be able to connect an experiment label to resolution, duration, and model family without decoding directory names. Tables should fit the page at readable type sizes. Model grids should align the same sample across Turbid, Baseline restored, Residual restored, and Clear columns. Captions should state whether higher or lower is preferred and whether an image is an external condition or model output.",
         "Efficiency is bounded rather than optimized. Training must fit available GPU memory at batch size 16 in the main setting, and report generation must complete locally without requiring the dataset or checkpoints. Inference uses all 100 configured reverse steps, favoring comparability over latency. Reliability outside the test distribution is explicitly limited; the program should not present an external qualitative result as guaranteed correction. These non-functional requirements define a transparent research prototype rather than a production underwater-vision product.",
     ])
     subheading(doc, "3.4 Evaluation Methodology")
     paragraphs(doc, [
-        "The primary evaluation unit is the image pair in the 368-item test split. Training and validation examples are excluded from final metric aggregation. The frozen summary reports n=368 for every experiment, enabling direct row-wise comparison. The main contrast is default U-Net versus residual at 128 pixels and 50 epochs. Because all surrounding choices are shared, this contrast estimates the combined effect of adopting the implemented residual backbone design rather than changing the data or diffusion objective.",
+        "The primary evaluation unit is the image pair in the 384-item grouped test split. Training and validation examples are excluded from final metric aggregation. Each model is trained with three seeds and the summary reports mean and sample standard deviation over three evaluations of n=384. The main contrast is default U-Net versus residual at 128 pixels and 50 epochs. Because surrounding choices are shared, this contrast estimates the behavior of the implemented residual-backbone replacement rather than changing the data or diffusion objective.",
         "A second contrast compares residual with the parameter-matched U-Net. Their parameter counts differ by about 15,426, or less than two percent relative to the residual count, while the default U-Net is much smaller. This control asks whether width alone can recover performance. It is not perfectly controlled for computation, activation count, receptive behavior, or block depth, and it does not isolate every residual component. It nevertheless provides substantially stronger evidence than comparing only the unequal default models.",
-        "Two ablations probe training duration and input resolution. The 100-epoch rows are compared with their 50-epoch family counterparts at 128 pixels. The 256-pixel rows are compared with 128-pixel, 50-epoch rows. These are one-factor practical probes, not exhaustive hyperparameter optimizations. A metric that worsens after longer training or higher resolution may indicate optimization mismatch, stochastic variation, or a trade-off; it does not prove that the factor can never help.",
+        "Earlier duration and resolution ablations used the superseded filename-random split and are not part of this final quantitative comparison. Future ablations should use the same grouped split and multi-seed protocol.",
         "Interpretation uses direction-aware metrics and avoids selecting only favorable numbers. Lower MSE, MAE, and Delta E and higher PSNR and SSIM are preferred. Entropy is described, not treated as a universal objective. Qualitative grids use matching filenames and shared rows so visual comparison is legitimate. External source-condition figures are explicitly separated from model-output figures. Conclusions are restricted to the observed dataset, architecture implementations, schedules, and checkpoints.",
     ])
 
@@ -438,7 +469,7 @@ def add_system_architecture(doc: Document) -> None:
     paragraphs(doc, [
         "The architecture begins with two directories containing clear and turbid RGB files and text files containing split filenames. UnderwaterPairedDataset reads non-empty lines from one split file and uses each filename to open one image from each directory. This filename-driven design is preferable to independently sorting two directories because it makes the relationship explicit and fails loudly when one member is missing. The returned dictionary includes clear, turbid, and filename fields, preserving traceability through loading and visualization.",
         "Both images undergo the same deterministic resize to the configured square dimensions, tensor conversion, and channel-wise normalization with mean 0.5 and standard deviation 0.5. The resulting range is approximately [-1, 1], matching the model and diffusion operations. If augmentation is enabled, one random horizontal-flip decision is shared by both images. Applying independent geometric transforms would destroy pixel alignment and invalidate full-reference training, so paired augmentation is an architectural requirement rather than an incidental implementation detail.",
-        "Fixed training, validation, and test lists sit outside the Dataset class. This separation allows the same loader code to serve each phase while keeping assignment stable across experiments. Training updates parameters, validation tracks behavior during development, and testing is reserved for final aggregate comparison. The counts sum exactly: 2,937 plus 367 plus 368 equals 3,672. No external unpaired item enters these split counts.",
+        "Grouped training, validation, and test lists sit outside the Dataset class. This separation allows the same loader code to serve each phase while keeping assignment stable across experiments. Training updates parameters, validation tracks behavior during development, and testing is reserved for final aggregate comparison. After exact-pair deduplication the counts are 2,899, 357, and 384. No external unpaired item enters these split counts.",
     ])
     add_picture(doc, REPORT_ASSETS / "candidate_pair_sheet.png", 6.3)
     caption(doc, "Figure 4-1: Candidate turbid-clear pairs used to verify correspondence before training")
@@ -463,7 +494,7 @@ def add_system_architecture(doc: Document) -> None:
     paragraphs(doc, [
         "The proposed ResidualUNet accepts the same six-channel input, uses the same time-embedding dimensionality, and follows the same 32, 64, and 128 channel scales. Its encoder and decoder modules are ResidualBlocks. It also uses two 128-channel bottleneck residual blocks, adding processing at the lowest spatial scale. A final 1 by 1 convolution maps 32 decoder channels to the three-channel noise estimate. The outer encoder-decoder skip concatenations, pooling, and interpolation remain aligned with the baseline design.",
         "Within each residual block, a transformed branch applies normalization, activation, convolution, and timestep conditioning while a shortcut provides an identity or channel-aligning projection. The combination allows information and gradients to bypass the nonlinear branch. When a block maps concatenated decoder input to fewer output channels, the projection is necessary. These projections and the additional bottleneck explain much of the parameter increase relative to the default U-Net.",
-        "The proposed model has approximately 886,371 trainable parameters. It is slightly smaller than the capacity-control U-Net but substantially larger than the default baseline. Table 4-1 reports these counts openly. Parameter count is not equivalent to computational cost or expressive behavior, but it is an important first-order confound. The experiment therefore supports two conclusions at different levels: residual is clearly better than the project's default small U-Net on most reported quantities, and residual retains advantages in SSIM, Delta E, and entropy when compared at roughly equal parameter count.",
+        "The proposed model has approximately 886,371 trainable parameters. It is slightly smaller than the capacity-control U-Net but substantially larger than the default baseline. Table 4-1 reports these counts openly. Parameter count is not equivalent to computational cost or expressive behavior, but it is an important first-order confound. The grouped experiment finds better mean SSIM and Delta E for the residual configuration at roughly equal parameter count; entropy is not used as an advantage claim.",
     ])
     add_table_caption(doc, "Table 4-1: Trainable parameter counts for the principal backbone configurations")
     add_table(doc, [
@@ -484,30 +515,30 @@ def add_dataset_and_development(doc: Document) -> None:
     add_picture(doc, REPORT_ASSETS / "main_dataset_example_sheet.png", 6.4)
     caption(doc, "Figure 5-1: Representative paired training-domain examples; each turbid patch is associated with a clear reference")
     paragraphs(doc, [
-        "The dataset is divided into 80 percent training and approximately 10 percent each for validation and testing: 2,937, 367, and 368 pairs. Integer counts reflect the finite collection. The same lists are reused across every experiment in the frozen results. This is more important than exact percentage labels because repeated random splitting could change sample difficulty and make small metric differences incomparable.",
+        "The active split uses contiguous source groups inferred from numeric filename order and repeated 24-patch chart structure. It assigns 122 groups to training, 15 to validation, and 16 to test; exact clear+turbid duplicates are removed globally with holdout priority. The resulting counts are 2,899, 357, and 384 pairs. The same lists are reused across every grouped experiment. This source-aware protocol is more appropriate than the superseded filename-random split, but it cannot prove physical-session independence without acquisition metadata.",
         "External real scenes, the three-condition chart, and the USAF target serve different reporting purposes. Condition panels document visible underwater degradation. Auxiliary unpaired images or video-derived frames probe qualitative behavior outside the patch distribution. Neither category expands the paired training count, and neither receives invented full-reference metrics. Keeping those roles distinct prevents a visually interesting external panel from being mistaken for evidence of measured generalization.",
     ])
     add_table_caption(doc, "Table 5-1: Fixed paired-dataset split used by every quantitative experiment")
     add_table(doc, [
         ["Split", "Pairs", "Share", "Use"],
-        ["Training", "2,937", "79.98%", "Parameter optimization"],
-        ["Validation", "367", "9.99%", "Development monitoring"],
-        ["Test", "368", "10.02%", "Frozen final evaluation"],
-        ["Total", "3,672", "100.00%", "Paired supervised collection"],
+        ["Training", "2,899", "79.93%", "Parameter optimization"],
+        ["Validation", "357", "9.84%", "Development monitoring"],
+        ["Test", "384", "10.59%", "Frozen final evaluation"],
+        ["Total", "3,640", "100.00%", "After exact-pair deduplication"],
     ], font_size=10)
     subheading(doc, "5.2 Preprocessing and Fixed Splits")
     paragraphs(doc, [
         "PIL opens each file and converts it to RGB, eliminating ambiguity from grayscale, palette, or alpha-channel inputs. Torchvision resizes both pair members to the configured dimensions with antialiasing. ToTensor maps display values to [0, 1], and normalization with mean and standard deviation 0.5 maps them to approximately [-1, 1]. The denormalization utility reverses this operation and clamps outputs to [0, 1] for visualization and metric handling as appropriate.",
-        "Resizing standardizes batches but can alter fine detail. At 128 pixels, small structures may be smoothed or compressed; at 256 pixels, more spatial samples are available but optimization and memory demands increase. The paired chart patches are compatible with square resizing, yet the transformation would distort arbitrary non-square scenes unless aspect-ratio-aware preprocessing were added. The resolution ablation evaluates the implemented choice rather than claiming preservation of native camera geometry.",
+        "Resizing standardizes batches but can alter fine detail. At the selected 128-pixel resolution, small structures may be smoothed or compressed. The paired chart patches are compatible with square resizing, yet the transformation would distort arbitrary non-square scenes unless aspect-ratio-aware preprocessing were added.",
         "Horizontal flipping is the available training augmentation. The same random decision applies to clear and turbid images, maintaining correspondence. No random color jitter is used because independent or aggressive color transformations could change the target relationship central to color restoration. No synthetic turbidity generation is included in the frozen setup. As a result, the model learns from the observed paired conditions rather than a parametrically expanded family of water effects.",
-        "Split files are read once when a Dataset instance is created, and blank lines are ignored. A missing split raises FileNotFoundError; an empty one raises ValueError. During retrieval, either missing member also raises FileNotFoundError. These fail-fast behaviors protect experiments from silently shortening a split or pairing different arrays by index. The reported n=368 for all metric rows provides a final aggregate check that the complete test split was evaluated.",
+        "Split files are read once when a Dataset instance is created, and blank lines are ignored. A missing split raises FileNotFoundError; an empty one raises ValueError. During retrieval, either missing member also raises FileNotFoundError. These fail-fast behaviors protect experiments from silently shortening a split or pairing different arrays by index. The reported n=384 for every seed provides a final aggregate check that the complete test split was evaluated.",
     ])
     subheading(doc, "5.3 Training Configuration")
     paragraphs(doc, [
-        "The main configurations use image size 128, batch size 16, 50 epochs, learning rate 0.0001, and random seed 42. The diffusion schedule contains 100 timesteps and sampling also uses 100 steps. Both model families output three channels from a six-channel concatenated input. The default and residual configurations differ in model name while retaining base width 32. The capacity-control file selects the ordinary conditional U-Net and raises base width to 42.",
+        "The main configurations use image size 128, batch size 16, 50 epochs, learning rate 0.0001, and training seeds 42, 123, and 2026. The diffusion schedule contains 100 timesteps and sampling also uses 100 steps. Both model families output three channels from a six-channel concatenated input. The default and residual configurations retain base width 32. The capacity-control configuration selects the ordinary conditional U-Net and raises base width to 42.",
         "At each update, a batch of clear and turbid tensors moves to the selected device. One timestep is sampled independently for each item. The schedule creates a noisy clear tensor and returns the exact Gaussian noise. The denoiser predicts that noise; mean squared noise-prediction loss is differentiated; optimizer gradients are cleared; backpropagation runs; and parameters update. The method trains neither an adversarial discriminator nor an explicit perceptual or color loss. Improvements in SSIM or Delta E therefore emerge under the shared noise objective rather than direct optimization of those metrics.",
         "Full runs took place in Google Colab with A100 availability. Dataset archives, checkpoints, logs, and evaluation outputs remained in Drive-oriented paths to avoid placing large binary artifacts in source control. The repository contains the reusable implementation, configurations, notebook workflow, tests, and summary artifacts. This separation is practical but means reproducing training requires access to the data and adequate compute; reproducing the report itself requires only the frozen CSV and figure assets.",
-        "The 100-epoch configurations extend duration while preserving 128-pixel resolution and model family. The 256-pixel configurations preserve 50 epochs while changing resolution. These comparisons were selected to investigate common improvement hypotheses: train longer and provide more spatial detail. Their results show why such changes should be measured rather than assumed. Longer training benefits the baseline more consistently, and higher resolution changes structural and pixel metrics differently.",
+        "The final quantitative comparison is intentionally limited to the three principal 128-pixel, 50-epoch models under the grouped split. Earlier duration and resolution rows are not combined with this result because they used the superseded split protocol.",
     ])
     add_table_caption(doc, "Table 5-2: Shared main training and diffusion configuration")
     add_table(doc, [
@@ -516,7 +547,7 @@ def add_dataset_and_development(doc: Document) -> None:
         ["Batch size", "16", "Main configuration"],
         ["Epochs", "50", "Main configuration"],
         ["Learning rate", "0.0001", "All listed YAML main configurations"],
-        ["Seed", "42", "All listed YAML main configurations"],
+        ["Training seeds", "42, 123, 2026", "All grouped main configurations"],
         ["Diffusion timesteps", "100", "All listed YAML main configurations"],
         ["Sampling steps", "100", "All listed YAML main configurations"],
         ["Input/output", "6 concatenated / 3 predicted", "Both backbone families"],
@@ -535,7 +566,7 @@ def add_dataset_and_development(doc: Document) -> None:
         ["2 Diffusion pipeline", "Loader, noising, schedule tests", "Verify conditional training inputs"],
         ["3 Baseline", "Conditional U-Net and debug training", "Create reference architecture"],
         ["4 Proposed model", "Residual blocks and main comparison", "Test residual backbone"],
-        ["5 Full evaluation", "Metrics, 100-epoch and 256-pixel runs", "Study duration/resolution"],
+        ["5 Grouped evaluation", "Source-group split, duplicate audit, three-seed metrics", "Strengthen evaluation protocol"],
         ["6 Controls", "Matched U-Net and external-data scope review", "Separate capacity and scope claims"],
     ], font_size=9)
 
@@ -544,103 +575,63 @@ def add_results_and_evaluation(doc: Document) -> None:
     heading(doc, "6 RESULTS AND EVALUATION")
     subheading(doc, "6.1 Main Quantitative Results")
     paragraphs(doc, [
-        "Table 6-1 contains every frozen quantitative result. Each row represents the same 368-item test split. MSE, MAE, and CIE76 Delta E are better when lower; PSNR and SSIM are better when higher. Entropy is included descriptively. Reporting all seven configurations together prevents the main claim from hiding duration or resolution outcomes that are less favorable to the proposed model.",
+        "Table 6-1 reports the grouped-split experiment matrix. Each value is the mean +/- sample standard deviation across three independently seeded trainings, evaluated on the same 384 test pairs. Lower MSE, MAE, and CIE76 Delta E are preferred; higher PSNR and SSIM are preferred. Entropy is included as a descriptive statistic only and is not ranked as a quality metric.",
     ])
-    add_table_caption(doc, "Table 6-1: Full metrics on the fixed 368-pair test split")
+    add_table_caption(doc, "Table 6-1: Grouped-split metrics across three training seeds (mean +/- sample SD; n=384 per seed)")
     add_metric_summary_table(doc)
     paragraphs(doc, [
-        "The default 128/50 U-Net has the highest MSE and MAE among the 128-pixel rows and the lowest 128-pixel SSIM. The main residual row improves every listed value relative to that default row when lower entropy is interpreted as smoother output. However, the matched U-Net records the lowest overall MSE and MAE and the highest overall PSNR in this set. The 256-pixel residual records the highest SSIM, while the 128/50 residual records the lowest Delta E and entropy. There is therefore no single configuration that dominates every criterion.",
-        "Differences across metrics are expected because they reward different image properties. Pixel losses favor close channel values at exact coordinates. SSIM rewards local structural agreement. Delta E evaluates distance after conversion to a color representation designed around perceptual organization. A model can reduce local structural distortion without minimizing every RGB error, or slightly improve PSNR while leaving a larger color-space discrepancy. The correct reading is a profile of behavior, not a one-dimensional league table.",
-    ])
-    add_picture(doc, REPORT_OUTPUTS / "training_loss_curves.png", 6.2)
-    caption(doc, "Figure 6-1: Recorded training and validation loss curves for completed experiments")
-    paragraphs(doc, [
-        "The loss curves provide optimization context but do not replace test metrics. Training minimizes noise-prediction MSE at random timesteps, whereas the final metrics compare sampled restored images with clear references. A lower training loss does not guarantee proportional improvement in SSIM or Delta E. Curves can reveal convergence, instability, or a plateau, but model selection and conclusions must remain tied to the fixed test protocol and generated outputs.",
+        "The parameter-matched U-Net has the best mean MSE, MAE, and PSNR. The residual model has the best mean SSIM and CIE76 Delta E. No configuration dominates every primary metric. Differences are expected because pixel losses, structural similarity, and CIELAB color distance capture different aspects of the restored image.",
     ])
     subheading(doc, "6.2 Default Baseline vs Residual")
     paragraphs(doc, [
-        "The principal same-configuration comparison is favorable to the residual model. MSE falls from 0.039444 to 0.035727, a 9.42 percent reduction. MAE falls from 0.168026 to 0.159895, a 4.84 percent reduction. PSNR increases by 0.622892 dB, from 15.681501 to 16.304393. SSIM increases from 0.610758 to 0.788963, a relative increase of 29.18 percent. CIE76 Delta E falls from 29.645203 to 26.840257, a 9.46 percent reduction. Entropy falls from 5.095362 to 4.368050.",
-        "SSIM is the largest relative change among the primary paired metrics. On these chart patches, structural consistency includes preservation of patch boundaries and within-patch organization. The lower Delta E indicates that the residual outputs are closer to the clear targets in CIELAB distance on average. Together, these outcomes support the claim that the residual backbone improves structural and color-oriented restoration behavior over the project's default conditional U-Net.",
-        "The comparison does not identify residual shortcuts as the sole cause. ResidualUNet has more parameters and an extra bottleneck block, so it changes capacity and depth as well as shortcut topology. The result is best phrased as an improvement from replacing the default denoising backbone with the implemented residual backbone. The matched control in Section 6.3 then tests whether increasing ordinary U-Net width offers an alternative explanation.",
-    ])
-    add_picture(doc, REPORT_OUTPUTS / "ssim_comparison.png", 5.8)
-    caption(doc, "Figure 6-2: SSIM across completed configurations; higher is better")
-    add_picture(doc, REPORT_OUTPUTS / "delta_e_cie76_comparison.png", 5.8)
-    caption(doc, "Figure 6-3: CIE76 Delta E across completed configurations; lower is better")
-    add_picture(doc, REPORT_OUTPUTS / "compact_default_comparison.png", 6.4)
-    caption(doc, "Figure 6-4: Matching test samples arranged as Turbid, default U-Net restoration, residual restoration, and Clear reference")
-    paragraphs(doc, [
-        "Figure 6-4 is generated programmatically from matching baseline and residual grids. Only three representative rows are retained so every column remains legible and the figure fits within one page. Turbid and Clear come from the baseline sheet, while the two restored columns come from their corresponding model sheets. The arrangement supports direct inspection of color drift, smoothness, and patch boundaries without asking the reader to compare separate tall figures.",
+        f"Against the default U-Net, the residual configuration increases mean SSIM from {grouped_metric('baseline_b32', 'ssim')} to {grouped_metric('residual_b32', 'ssim')} and reduces mean CIE76 Delta E from {grouped_metric('baseline_b32', 'delta_e_cie76')} to {grouped_metric('residual_b32', 'delta_e_cie76')}. Its mean MSE, MAE, and PSNR are also competitive but not best across all three models.",
+        "This comparison does not identify residual shortcuts as the sole cause. ResidualUNet has more parameters and an extra bottleneck block, so it changes capacity and depth as well as shortcut topology. The result is therefore phrased as the observed behavior of the implemented residual backbone under this protocol, not as a component-level causal effect.",
     ])
     subheading(doc, "6.3 Parameter-Matched Capacity Control")
     paragraphs(doc, [
-        "The capacity control is the most important qualification. Widening the ordinary U-Net from 32 to 42 base channels raises its parameter count from approximately 527,363 to 901,797, close to the residual model's approximately 886,371. At the same 128-pixel, 50-epoch setting, the matched U-Net obtains MSE 0.034294, MAE 0.155805, and PSNR 16.356273. These are slightly better than residual values of 0.035727, 0.159895, and 16.304393. The PSNR margin is only about 0.052 dB, but its direction is clear.",
-        "The residual model remains stronger on SSIM, 0.788963 versus 0.746291, and Delta E, 26.840257 versus 27.225774. It also has lower entropy, 4.368050 versus 4.790907. This pattern suggests that width and residual topology distribute performance differently across criteria. Increased U-Net capacity is effective for direct reconstruction error, while the residual configuration provides the best structural and color-space scores at this resolution and duration.",
-        "A capacity-matched result is not a proof of architecture in isolation. Parameter count does not match depth, operation count, memory traffic, or optimization geometry, and base width 42 is only one possible U-Net design. Multiple seeds would be needed to estimate run-to-run variance. Still, the control falsifies an overly broad narrative that the residual model is best on every metric and provides evidence that the default baseline was partly capacity limited.",
+        f"The capacity control raises the ordinary U-Net width from 32 to 42 channels, bringing its approximately 901,797 parameters close to the residual model's approximately 886,371. Its mean MSE, MAE, and PSNR are {grouped_metric('param_matched_unet_b42', 'mse')}, {grouped_metric('param_matched_unet_b42', 'mae')}, and {grouped_metric('param_matched_unet_b42', 'psnr')}; the residual values are {grouped_metric('residual_b32', 'mse')}, {grouped_metric('residual_b32', 'mae')}, and {grouped_metric('residual_b32', 'psnr')}.",
+        f"The residual model remains ahead on mean SSIM ({grouped_metric('residual_b32', 'ssim')} versus {grouped_metric('param_matched_unet_b42', 'ssim')}) and mean CIE76 Delta E ({grouped_metric('residual_b32', 'delta_e_cie76')} versus {grouped_metric('param_matched_unet_b42', 'delta_e_cie76')}). Parameter count does not equalize depth, operations, memory traffic, or optimization geometry, so this is an informative capacity control rather than proof of architecture in isolation.",
     ])
     add_table_caption(doc, "Table 6-2: Focused 128-pixel, 50-epoch capacity-control comparison")
     add_table(doc, [
-        ["Metric", "Matched U-Net", "Residual", "Observed leader"],
+        ["Metric", "Matched U-Net", "Residual", "Mean leader"],
         ["Parameters", "901,797", "886,371", "Approximately matched"],
-        ["MSE", "0.034294", "0.035727", "Matched U-Net"],
-        ["MAE", "0.155805", "0.159895", "Matched U-Net"],
-        ["PSNR (dB)", "16.356273", "16.304393", "Matched U-Net"],
-        ["SSIM", "0.746291", "0.788963", "Residual"],
-        ["CIE76 Delta E", "27.225774", "26.840257", "Residual"],
-        ["Entropy", "4.790907", "4.368050", "Residual (lower here)"],
+        ["MSE", grouped_metric("param_matched_unet_b42", "mse"), grouped_metric("residual_b32", "mse"), "Matched U-Net"],
+        ["MAE", grouped_metric("param_matched_unet_b42", "mae"), grouped_metric("residual_b32", "mae"), "Matched U-Net"],
+        ["PSNR (dB)", grouped_metric("param_matched_unet_b42", "psnr"), grouped_metric("residual_b32", "psnr"), "Matched U-Net"],
+        ["SSIM", grouped_metric("param_matched_unet_b42", "ssim"), grouped_metric("residual_b32", "ssim"), "Residual"],
+        ["CIE76 Delta E", grouped_metric("param_matched_unet_b42", "delta_e_cie76"), grouped_metric("residual_b32", "delta_e_cie76"), "Residual"],
+        ["Entropy (descriptive)", grouped_metric("param_matched_unet_b42", "entropy"), grouped_metric("residual_b32", "entropy"), "Not ranked"],
     ], font_size=9)
-    add_picture(doc, REPORT_OUTPUTS / "compact_capacity_comparison.png", 6.4)
-    caption(doc, "Figure 6-5: Matching test samples for the parameter-matched U-Net and residual capacity comparison")
-    subheading(doc, "6.4 Training Duration Ablation")
-    paragraphs(doc, [
-        "Extending the default U-Net from 50 to 100 epochs improves all of its listed metrics: MSE decreases from 0.039444 to 0.037111, MAE from 0.168026 to 0.163163, PSNR rises from 15.681501 to 15.976561, SSIM rises from 0.610758 to 0.623376, Delta E falls from 29.645203 to 28.571008, and entropy falls from 5.095362 to 4.943213. The baseline therefore had additional optimization benefit available under the unchanged longer schedule.",
-        "The residual model does not improve consistently with another 50 epochs. MSE changes from 0.035727 to 0.035936 and MAE from 0.159895 to 0.160301, both slightly worse. PSNR rises from 16.304393 to 16.352538, while SSIM falls from 0.788963 to 0.785447, Delta E rises slightly from 26.840257 to 26.866293, and entropy rises from 4.368050 to 4.710935. These small mixed movements suggest a plateau or objective-specific trade-off rather than a clear gain.",
-        "The appropriate inference is not that residual networks should never train longer. The learning rate, decay policy, regularization, checkpoint selection, and stochastic variation may influence the 100-epoch outcome. The frozen experiment shows only that doubling epochs under the current setup did not improve the residual model across the selected metrics, whereas it helped the default baseline. Future longer runs should tune the schedule rather than merely repeat identical epochs.",
-    ])
-    add_picture(doc, REPORT_OUTPUTS / "compact_duration_comparison.png", 6.4)
-    caption(doc, "Figure 6-6: Matching 100-epoch U-Net and residual restorations with turbid inputs and clear references")
-    subheading(doc, "6.5 Resolution Ablation")
-    paragraphs(doc, [
-        "At 256 pixels and 50 epochs, the baseline U-Net records MSE 0.039126, MAE 0.167594, PSNR 15.749889, SSIM 0.609380, Delta E 29.117468, and entropy 4.873310. Relative to its 128-pixel row, pixel errors and PSNR improve slightly, SSIM decreases slightly, Delta E improves, and entropy decreases. The changes are modest, so simply doubling width and height does not transform baseline behavior.",
-        "The 256-pixel residual row reaches SSIM 0.807967, the highest SSIM in the summary. It also records PSNR 15.900427, MSE 0.039173, MAE 0.168835, Delta E 27.078848, and entropy 4.667301. Compared with residual 128/50, SSIM improves but MSE, MAE, PSNR, Delta E, and entropy worsen. Higher resolution therefore favors the structural index while failing to improve the broader metric profile under this training budget.",
-        "Increasing resolution quadruples pixel count and changes optimization demands. A fixed number of epochs does not imply equal compute per pixel or equal effective convergence. The architecture has the same number of parameters but feature maps are larger, and fine-scale variation can affect error. A stronger resolution study would tune batch size, learning schedule, model receptive field, and sampling cost. The present row is correctly described as an ablation, not an optimized high-resolution model.",
-    ])
-    add_picture(doc, REPORT_OUTPUTS / "compact_resolution_comparison.png", 6.4)
-    caption(doc, "Figure 6-7: Three matching 256-pixel examples comparing baseline and residual restorations")
-    add_picture(doc, REPORT_OUTPUTS / "mse_comparison.png", 5.8)
-    caption(doc, "Figure 6-8: MSE across completed configurations; lower is better")
-    add_picture(doc, REPORT_OUTPUTS / "psnr_comparison.png", 5.8)
-    caption(doc, "Figure 6-9: PSNR across completed configurations; higher is better")
-    subheading(doc, "6.6 Qualitative and Cross-Dataset Scope")
+    subheading(doc, "6.4 Qualitative and Cross-Dataset Scope")
     paragraphs(doc, [
         "Qualitative analysis complements aggregate scores by exposing the form of errors. In matching patch grids, useful questions include whether the restored patch approaches reference hue, whether boundaries remain coherent, whether noise or mottling is introduced, and whether the method collapses different turbid inputs toward a common output. The compact four-column figures make these questions easier to inspect than separate vertical model sheets. They also preserve filename-level correspondence.",
-        "The paired test examples remain in distribution: they come from the same collection and task definition as training, although their filenames were held out. They are the proper visual counterpart to the numerical tables. A few displayed rows cannot represent all 368 examples and should not be selected as proof of average performance. Their role is illustrative, while the aggregate metrics carry the test-set claim.",
+        "The paired test examples remain in distribution: they come from the same collection and task definition as training, although their source groups were held out. They are the proper visual counterpart to the numerical tables. A few displayed rows cannot represent all 384 examples and should not be selected as proof of average performance. Their role is illustrative, while the aggregate metrics carry the test-set claim.",
         "External natural underwater scenes and video-derived frames are more challenging because the training set is dominated by controlled color patches. Such images may contain objects, long-range haze, non-uniform depth, suspended particles, natural textures, and camera motions absent from the training distribution. The model can be run on them, but no paired clear reference is available. Consequently, visual plausibility is the only evidence available, and an apparently pleasing output could still alter true colors or remove meaningful detail.",
         "The three-condition chart and USAF images shown in the Introduction are not model outputs and should not be used to claim successful restoration. They demonstrate real degradation modes and motivate color and structure measurements. This distinction is especially important in generative restoration because a model can produce a plausible-looking image that is not faithful to the observed scene. A future external benchmark should use genuinely paired or carefully calibrated references before numerical generalization claims are made.",
-        "Across the available evidence, the residual outputs tend to be structurally consistent and less noisy in the entropy sense, but they do not fully recover all clear-reference colors. The modest absolute PSNR and Delta E values reinforce that the problem remains unsolved. The project establishes a relative improvement under a specific protocol, not perfect de-turbiding or guaranteed recovery of information lost in the water medium.",
+        "The modest absolute PSNR and Delta E values reinforce that the problem remains unsolved. The project establishes a relative comparison under a specific protocol, not perfect de-turbiding or guaranteed recovery of information lost in water.",
     ])
-    subheading(doc, "6.7 Limitations")
+    subheading(doc, "6.5 Limitations")
     paragraphs(doc, [
         "The first limitation is dataset scope. Controlled color-patch pairs make alignment and color measurement possible, but they underrepresent the spatial complexity of natural underwater scenes. A model can exploit repeated chart layout and acquisition statistics. Performance on the fixed test split therefore demonstrates in-distribution paired restoration and should not be generalized automatically to coral reefs, pipelines, organisms, archaeological sites, or open-water robotics.",
-        "The second limitation is experimental breadth. Results come from one frozen split and reported configurations, without multiple random seeds or confidence intervals. Small differences, such as the 0.052 dB PSNR gap between matched U-Net and residual, may be sensitive to training variability. The capacity control matches parameter count approximately but not computation, depth, or every architectural feature. The residual implementation changes block topology and bottleneck depth together, so component-level causal attribution is limited.",
+        "The second limitation is experimental breadth. Three training seeds provide a sample standard deviation, but the study still uses one inferred contiguous-group split and no confidence intervals or paired per-image statistical tests. The capacity control matches parameter count approximately but not computation, depth, or every architectural feature. The residual implementation changes block topology and bottleneck depth together, so component-level causal attribution is limited.",
         "The third limitation concerns objectives and metrics. Training uses only noise-prediction MSE; no explicit physical, perceptual, structural, or color-consistency term is optimized. Full-reference metrics reduce complex visual behavior to averages and may not align perfectly with human judgment or downstream tasks. CIE76 is a basic color-difference formula; entropy has no universal quality direction; and none of the metrics verifies physical scene radiance. Human evaluation and task-based evaluation are absent.",
         "The fourth limitation is practical deployment. Reverse diffusion uses 100 network evaluations, and runtime or energy measurements were not part of the frozen results. The model works on single square images and does not enforce temporal consistency, so independent video frames may flicker. There is no uncertainty estimate, out-of-distribution detector, or safeguard against hallucinated detail. Inputs from different cameras, water types, or lighting conditions may fall outside the learned mapping.",
-        "Finally, higher resolution and longer duration were tested only with limited schedules. The 256-pixel residual improves SSIM while degrading several other metrics; the 100-epoch residual plateaus. These observations may reflect insufficient tuning rather than fundamental limitations. Honest reporting requires retaining these mixed outcomes and treating further optimization as future work rather than retroactively selecting only the best metric from each run.",
+        "Finally, the 24-patch grouping is inferred from filenames and repeated chart structure, not from an acquisition manifest. It prevents observed source-group leakage but cannot prove independence between nearby observations in the same physical session. Clear references also repeat across groups, which limits the interpretation of broad scene generalization.",
     ])
 
 
 def add_conclusions(doc: Document) -> None:
     heading(doc, "7 CONCLUSIONS AND FUTURE WORKS")
     paragraphs(doc, [
-        "This project implemented a supervised conditional diffusion pipeline for underwater image restoration and used it to compare denoising backbones. The input condition is a turbid underwater color-patch image; the reference is its filename-matched clearer image. The project verified 3,672 pairs, fixed training, validation, and test assignments, implemented shared preprocessing and a 100-step linear diffusion schedule, and evaluated all completed configurations on the same 368-pair test set.",
-        "The baseline conditional U-Net and proposed ResidualUNet share the same six-channel conditional input, timestep embedding concept, encoder-decoder scales, outer skip connections, noise-prediction objective, optimizer configuration, and principal training budget. The proposed design replaces ordinary ConvBlocks with ResidualBlocks and adds bottleneck processing. At 128 pixels and 50 epochs, this replacement improves all reported values relative to the default base-width-32 U-Net, including a 29.18 percent relative SSIM increase and a 9.46 percent Delta E reduction.",
-        "The parameter-matched U-Net is essential to the final conclusion. Widening the ordinary U-Net to approximately 901,797 parameters makes it slightly better than the approximately 886,371-parameter residual model on MSE, MAE, and PSNR. The residual remains better on SSIM, CIE76 Delta E, and entropy. Thus, the evidence does not support saying that residual processing is universally superior. It supports saying that the implemented residual backbone improves structural similarity and color-difference behavior, while ordinary U-Net capacity is highly competitive for exact pixel reconstruction.",
-        "The ablations reinforce the need for metric-specific interpretation. Doubling training duration improves the default baseline but does not consistently improve residual performance. Doubling resolution gives the residual model the highest SSIM but worsens several pixel and color measures relative to its 128-pixel run. Neither more epochs nor more pixels is an automatic solution without learning-rate, regularization, architecture, and sampling adjustments.",
-        "The most immediate future work is repeated training with several seeds and statistical summaries. Confidence intervals or paired per-image tests would show whether small matched-capacity differences are stable. A component ablation should compare equal-depth ordinary and residual blocks, remove or retain the second bottleneck systematically, and measure multiply-accumulate operations, memory, sampling time, and parameter count. This would isolate shortcut effects more cleanly than parameter matching alone.",
+        "This project implemented a supervised conditional diffusion pipeline for underwater image restoration and used it to compare denoising backbones. The input condition is a turbid underwater color-patch image; the reference is its filename-matched clearer image. The project verified 3,672 pairs, inferred source groups from the repeated 24-patch chart structure, removed 32 exact duplicate pairs, and evaluated each principal configuration over three training seeds on the same 384-pair held-out list.",
+        f"The residual configuration improves the default U-Net on mean SSIM ({grouped_metric('baseline_b32', 'ssim')} to {grouped_metric('residual_b32', 'ssim')}) and mean CIE76 Delta E ({grouped_metric('baseline_b32', 'delta_e_cie76')} to {grouped_metric('residual_b32', 'delta_e_cie76')}). These results describe the implemented backbone replacement, which changes residual shortcuts, capacity, and bottleneck depth together; they do not establish a shortcut-only causal mechanism.",
+        "The parameter-matched U-Net is essential to the conclusion. It has the best mean MSE, MAE, and PSNR, while the residual model has the best mean SSIM and CIE76 Delta E. The evidence therefore supports a metric-specific statement: the residual configuration is favorable for structural similarity and color difference in this fixed diffusion framework, while wider ordinary U-Net capacity is competitive or better for direct pixel reconstruction. Entropy is not used to rank models.",
+        "Future work should obtain acquisition/session metadata for a stronger independence split, repeat the study across additional splits and more seeds, and use paired per-image tests or confidence intervals. A component ablation should equalize depth and capacity while adding or removing residual blocks systematically. Broader paired natural underwater data, calibrated references, runtime measurements, and direct restoration baselines are also needed before deployment-oriented claims.",
         "Data expansion is equally important. Training should include diverse paired natural scenes spanning water types, depths, distances, artificial illumination, cameras, and object classes. UIEB or another recognized benchmark can provide external context when its protocol is followed, but paired and unpaired subsets must be treated correctly. Synthetic degradation may expand coverage if its physical assumptions are validated against real data. Camera color calibration and raw-image access could reduce unknown processing effects.",
         "Model work can investigate attention-enhanced U-Nets, learned or cosine schedules, fewer-step samplers, deterministic DDIM-like sampling, diffusion distillation, and direct restoration baselines. Comparisons against a deterministic U-Net regression model, a residual regression model, representative physics-based methods, and established underwater enhancement networks would determine whether diffusion's iterative cost is justified. Such comparisons must use the same data split and report runtime alongside image quality.",
         "Objective design can incorporate color-aware, structural, or perceptual terms, but each addition should be evaluated for faithfulness rather than visual vividness alone. CIEDE2000 could complement CIE76. Human preference studies, underwater-domain task performance, and calibrated chart measurements would broaden evaluation. For video, temporal conditioning or consistency losses are needed to avoid frame-to-frame flicker. An uncertainty or out-of-distribution mechanism should warn when an input differs substantially from training data.",
-        "In conclusion, residual learning is a useful architectural direction for this conditional diffusion restoration task, particularly for structural and color-oriented criteria. The controlled capacity result makes that contribution more credible by defining where the advantage does and does not hold. The resulting system, artifacts, and report form a reproducible foundation for broader data, stronger controls, faster sampling, and deployment-oriented evaluation, while remaining explicit about the limited domain and the absence of universal restoration guarantees.",
+        "In conclusion, residual learning is a useful architectural direction for structural and color-oriented criteria in this conditional diffusion task. The grouped split, exact-duplicate audit, capacity control, and three-seed reporting make that conclusion more defensible while keeping its scope limited to the observed chart-patch data and implementation.",
     ])
 
 
@@ -652,19 +643,19 @@ def add_references(doc: Document) -> None:
         "[3] K. He, X. Zhang, S. Ren, and J. Sun, 'Deep Residual Learning for Image Recognition,' Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 770-778, 2016. doi: 10.1109/CVPR.2016.90.",
         "[4] C. Li, C. Guo, W. Ren, R. Cong, J. Hou, S. Kwong, and D. Tao, 'An Underwater Image Enhancement Benchmark Dataset and Beyond,' IEEE Transactions on Image Processing, vol. 29, pp. 4376-4389, 2020. doi: 10.1109/TIP.2019.2955241.",
         "[5] J. S. Jaffe, 'Computer Modeling and the Design of Optimal Underwater Imaging Systems,' IEEE Journal of Oceanic Engineering, vol. 15, no. 2, pp. 101-111, 1990. doi: 10.1109/48.50695.",
-        "[6] D. Akkaynak and T. Treibitz, 'A Revised Underwater Image Formation Model,' Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 6723-6732, 2018.",
+        "[6] D. Akkaynak and T. Treibitz, 'A Revised Underwater Image Formation Model,' Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 6723-6732, 2018. doi: 10.1109/CVPR.2018.00703.",
         "[7] K. He, J. Sun, and X. Tang, 'Single Image Haze Removal Using Dark Channel Prior,' IEEE Transactions on Pattern Analysis and Machine Intelligence, vol. 33, no. 12, pp. 2341-2353, 2011. doi: 10.1109/TPAMI.2010.168.",
-        "[8] P. Drews, E. Nascimento, F. Moraes, S. Botelho, and M. Campos, 'Transmission Estimation in Underwater Single Images,' Proceedings of the IEEE International Conference on Computer Vision Workshops, pp. 825-830, 2013.",
-        "[9] C. Li, J. Guo, and C. Guo, 'Emerging From Water: Underwater Image Color Correction Based on Weakly Supervised Color Transfer,' IEEE Signal Processing Letters, vol. 25, no. 3, pp. 323-327, 2018.",
-        "[10] M. J. Islam, Y. Xia, and J. Sattar, 'Fast Underwater Image Enhancement for Improved Visual Perception,' IEEE Robotics and Automation Letters, vol. 5, no. 2, pp. 3227-3234, 2020.",
+        "[8] P. Drews, E. Nascimento, F. Moraes, S. Botelho, and M. Campos, 'Transmission Estimation in Underwater Single Images,' Proceedings of the IEEE International Conference on Computer Vision Workshops, pp. 825-830, 2013. doi: 10.1109/ICCVW.2013.113.",
+        "[9] C. Li, J. Guo, and C. Guo, 'Emerging From Water: Underwater Image Color Correction Based on Weakly Supervised Color Transfer,' IEEE Signal Processing Letters, vol. 25, no. 3, pp. 323-327, 2018. doi: 10.1109/LSP.2018.2792050.",
+        "[10] M. J. Islam, Y. Xia, and J. Sattar, 'Fast Underwater Image Enhancement for Improved Visual Perception,' IEEE Robotics and Automation Letters, vol. 5, no. 2, pp. 3227-3234, 2020. doi: 10.1109/LRA.2020.2974710.",
         "[11] C. Saharia, W. Chan, H. Chang, C. A. Lee, J. Ho, T. Salimans, D. J. Fleet, and M. Norouzi, 'Palette: Image-to-Image Diffusion Models,' ACM SIGGRAPH, 2022. doi: 10.1145/3528233.3530757.",
-        "[12] C. Saharia, J. Ho, W. Chan, T. Salimans, D. J. Fleet, and M. Norouzi, 'Image Super-Resolution via Iterative Refinement,' IEEE Transactions on Pattern Analysis and Machine Intelligence, vol. 45, no. 4, pp. 4713-4726, 2023.",
+        "[12] C. Saharia, J. Ho, W. Chan, T. Salimans, D. J. Fleet, and M. Norouzi, 'Image Super-Resolution via Iterative Refinement,' IEEE Transactions on Pattern Analysis and Machine Intelligence, vol. 45, no. 4, pp. 4713-4726, 2023. doi: 10.1109/TPAMI.2022.3204461.",
         "[13] Q. Huynh-Thu and M. Ghanbari, 'Scope of Validity of PSNR in Image/Video Quality Assessment,' Electronics Letters, vol. 44, no. 13, pp. 800-801, 2008. doi: 10.1049/el:20080522.",
         "[14] Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli, 'Image Quality Assessment: From Error Visibility to Structural Similarity,' IEEE Transactions on Image Processing, vol. 13, no. 4, pp. 600-612, 2004. doi: 10.1109/TIP.2003.819861.",
         "[15] Commission Internationale de l'Eclairage, Colorimetry, 3rd ed., CIE Publication 15:2004, Vienna, 2004.",
         "[16] G. Sharma, W. Wu, and E. N. Dalal, 'The CIEDE2000 Color-Difference Formula: Implementation Notes, Supplementary Test Data, and Mathematical Observations,' Color Research and Application, vol. 30, no. 1, pp. 21-30, 2005. doi: 10.1002/col.20070.",
         "[17] National Institute of Standards and Technology, Artificial Intelligence Risk Management Framework (AI RMF 1.0), NIST AI 100-1, 2023. doi: 10.6028/NIST.AI.100-1.",
-        "[18] F. Iqbal and B. U. Toreyin, 'Underwater Turbid Image Restoration Using Diffusion Models,' project reference manuscript supplied for this project.",
+        "[18] F. Iqbal and B. U. Toreyin, 'Underwater Turbid Image Restoration Using Diffusion Models,' 2025 33rd Signal Processing and Communications Applications Conference (SIU), pp. 1-4, 2025. doi: 10.1109/SIU66497.2025.11112226.",
     ]
     for ref in refs:
         reference(doc, ref)
@@ -857,28 +848,23 @@ def add_table(doc: Document, rows: list[list[str]], font_size: int = 9) -> None:
 
 
 def add_metric_summary_table(doc: Document) -> None:
-    rows = list(csv.DictReader((REPORT_OUTPUTS / "metric_summary.csv").open(encoding="utf-8")))
-    names = {
-        "baseline_128_50": "U-Net 128/50",
-        "param_matched_unet_128_50": "Matched U-Net 128/50",
-        "residual_128_50": "Residual 128/50",
-        "baseline_128_100": "U-Net 128/100",
-        "residual_128_100": "Residual 128/100",
-        "baseline_256_50": "U-Net 256/50",
-        "residual_256_50": "Residual 256/50",
-    }
-    table_rows = [["Experiment", "MSE", "MAE", "PSNR", "SSIM", "Delta E", "Entropy"]]
-    for row in rows:
+    rows = [
+        ("Default U-Net", "baseline_b32"),
+        ("Matched U-Net", "param_matched_unet_b42"),
+        ("Residual U-Net", "residual_b32"),
+    ]
+    table_rows = [["Experiment", "MSE", "MAE", "PSNR", "SSIM", "Delta E", "Entropy (desc.)"]]
+    for label, model in rows:
         table_rows.append([
-            names.get(row["experiment"], row["experiment"]),
-            row["mse"], row["mae"], row["psnr"], row["ssim"],
-            row["delta_e_cie76"], row["entropy"],
+            label,
+            grouped_metric(model, "mse"), grouped_metric(model, "mae"), grouped_metric(model, "psnr"),
+            grouped_metric(model, "ssim"), grouped_metric(model, "delta_e_cie76"), grouped_metric(model, "entropy"),
         ])
     add_table(doc, table_rows, font_size=8)
 
 
 def create_presentation_outline() -> None:
-    text = """# Final Presentation Outline
+    text = f"""# Final Presentation Outline
 
 ## Slide 1 - Title
 Enhancing Diffusion-Based Underwater Image Restoration with Residual Networks.
@@ -886,23 +872,23 @@ Enhancing Diffusion-Based Underwater Image Restoration with Residual Networks.
 ## Slide 2 - Problem
 Underwater turbidity causes scattering, low contrast, and color distortion. The task is paired restoration from turbid image to clear/reference image.
 
-## Slide 3 - Dataset
-3672 paired images: 2937 train, 367 validation, 368 test. External/unpaired datasets are qualitative only.
+## Slide 3 - Leakage-Safe Dataset Protocol
+3,672 paired images; inferred contiguous 24-patch groups; 32 exact duplicates removed; 2,899 training, 357 validation, and 384 test pairs. Three training seeds per model.
 
 ## Slide 4 - Method
-Conditional diffusion model with the same noising objective. Baseline uses a U-Net denoiser; proposed model uses a ResNet-style residual denoiser.
+Conditional diffusion with a shared noise-prediction objective. Default U-Net, parameter-matched U-Net, and residual U-Net are compared at 128x128 for 50 epochs.
 
 ## Slide 5 - Main Result
-Residual improves strongly over the default U-Net baseline, especially on SSIM and Delta E.
+Residual versus default U-Net: SSIM {grouped_metric('baseline_b32', 'ssim')} to {grouped_metric('residual_b32', 'ssim')}; Delta E {grouped_metric('baseline_b32', 'delta_e_cie76')} to {grouped_metric('residual_b32', 'delta_e_cie76')}.
 
 ## Slide 6 - Capacity Control
-Parameter-matched U-Net improves MSE/PSNR. Residual remains better on SSIM, Delta E, and entropy.
+Matched U-Net leads mean MSE, MAE, and PSNR. Residual leads mean SSIM and Delta E. Entropy is descriptive and not ranked.
 
-## Slide 7 - Qualitative Examples
-Show residual comparison grid and parameter-matched U-Net grid.
+## Slide 7 - Scope and Limitations
+The grouping is inferred without an acquisition manifest; the results are in-distribution and do not establish natural-scene generalization.
 
 ## Slide 8 - Conclusion
-Residual diffusion improves structural and color-oriented restoration, but the result is not a universal win on every metric.
+Residual diffusion is favorable for structural and color-oriented criteria in this fixed framework, but no model dominates every primary metric.
 """
     (DELIVERABLES / "final_presentation_outline.md").write_text(text, encoding="utf-8")
 
@@ -915,12 +901,10 @@ def create_presentation_pptx() -> None:
     add_slide(prs, "Problem", ["Turbidity causes scattering, low contrast, and color distortion.", "Task: turbid underwater patch -> clear/reference patch.", "Question: does residual denoising improve the diffusion backbone?"])
     add_picture_slide(prs, "Dataset Example", REPORT_ASSETS / "paired_underwater_patches.png")
     add_slide(prs, "Method", ["Conditional diffusion model predicts noise added to the clean target.", "Baseline: conditional U-Net denoising backbone.", "Proposed: ResNet-style residual denoising backbone.", "Capacity control: parameter-matched U-Net."])
-    add_picture_slide(prs, "Training Curves", REPORT_OUTPUTS / "training_loss_curves.png")
-    add_slide(prs, "Main Result", ["Residual 128/50 improves default U-Net 128/50.", "SSIM: 0.610758 -> 0.788963.", "Delta E: 29.645203 -> 26.840257.", "MSE reduction: 9.42%."])
-    add_picture_slide(prs, "SSIM Comparison", REPORT_OUTPUTS / "ssim_comparison.png")
-    add_slide(prs, "Capacity Control", ["Matched U-Net is best on MSE, MAE, and PSNR.", "Residual is best on SSIM, Delta E, and entropy.", "This makes the final claim more honest and stronger."])
-    add_picture_slide(prs, "Residual Examples", COLAB_RESULTS / "residual_full" / "residual_comparison_grid.png")
-    add_slide(prs, "Conclusion", ["Residual backbone improves structural/color-oriented restoration over the default baseline.", "Parameter matching shows model capacity also matters.", "External datasets are qualitative only because paired references are unavailable."])
+    add_slide(prs, "Leakage-Safe Protocol", ["153 inferred contiguous 24-patch source groups.", "Exact clear+turbid duplicates removed globally: 32.", "2,899 train / 357 validation / 384 test pairs.", "Three training seeds per model; values are mean +/- sample SD."])
+    add_slide(prs, "Main Result", ["Residual improves structural and color-oriented averages over the default U-Net.", f"SSIM: {grouped_metric('baseline_b32', 'ssim')} -> {grouped_metric('residual_b32', 'ssim')}", f"Delta E: {grouped_metric('baseline_b32', 'delta_e_cie76')} -> {grouped_metric('residual_b32', 'delta_e_cie76')}"])
+    add_slide(prs, "Capacity Control", ["Matched U-Net leads mean MSE, MAE, and PSNR.", "Residual leads mean SSIM and CIE76 Delta E.", "Entropy is descriptive and not used to rank models."])
+    add_slide(prs, "Conclusion", ["Residual backbone is favorable for structural/color-oriented criteria in this fixed framework.", "Capacity and block depth remain confounds; this is not a shortcut-only causal claim.", "Results are in-distribution and do not establish natural-scene generalization."])
     prs.save(DELIVERABLES / "final_presentation_150210321.pptx")
 
 
@@ -964,7 +948,7 @@ Repository: https://github.com/bedirhanozturk1/Underwater_Resnet_Restoration
 
 ## Reporting Note
 
-Use the capacity-control interpretation. The residual backbone is strongest on SSIM, Delta E, and entropy. The parameter-matched U-Net is slightly stronger on MSE, MAE, and PSNR.
+The report uses the grouped source-aware split and three-seed aggregate. The residual model has the best mean SSIM and CIE76 Delta E; the parameter-matched U-Net has the best mean MSE, MAE, and PSNR. Entropy is descriptive and is not used to rank models.
 """
     (DELIVERABLES / "README_FINAL_SUBMISSION.md").write_text(text, encoding="utf-8")
 

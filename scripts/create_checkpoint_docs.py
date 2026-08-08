@@ -18,7 +18,7 @@ PROJECT_ROOT = REPO_ROOT.parent
 REPORT_ASSETS = PROJECT_ROOT / "report_assets"
 REPORT_OUTPUTS = PROJECT_ROOT / "report_outputs"
 COLAB_RESULTS = PROJECT_ROOT / "colab_results"
-GROUPED_SUMMARY = PROJECT_ROOT / "upload_to_drive" / "underwater_resnet_project" / "experiments" / "grouped_v1" / "summaries" / "metric_summary_mean_std.csv"
+GROUPED_SUMMARY = PROJECT_ROOT / "metric_summary_mean_std.csv"
 
 
 CHECKPOINTS = [
@@ -26,13 +26,13 @@ CHECKPOINTS = [
         "file": "checkpoint_01_dataset_setup.docx",
         "title": "Checkpoint 1: Dataset Setup",
         "objective": "Verify the paired underwater dataset and define the supervised restoration task.",
-        "key_message": "The project has a clean paired dataset and a fixed split for fair training and testing.",
+        "key_message": "The active protocol uses grouped source assignments and exact-pair deduplication for more defensible training and testing.",
         "completed": [
             "Verified 3672 matched clear/turbid image pairs.",
-            "Created fixed train, validation, and test split files.",
+            "Created contiguous source-group split files and a duplicate audit.",
             "Separated paired training data from unpaired qualitative data.",
         ],
-        "table": [["Split", "Pairs"], ["Train", "2937"], ["Validation", "367"], ["Test", "368"]],
+        "table": [["Split", "Pairs"], ["Train", "2899"], ["Validation", "357"], ["Test", "384"]],
         "figures": [
             (REPORT_ASSETS / "paired_underwater_patches.png", "Example verified paired image patch."),
             (REPORT_ASSETS / "candidate_pair_sheet.png", "Dataset pairing examples used during inspection."),
@@ -63,7 +63,7 @@ CHECKPOINTS = [
             "Completed baseline training and evaluation on the fixed test split.",
             "Generated metric CSV files and qualitative comparison grids.",
         ],
-        "table": [["Metric", "Baseline 128/50"], ["MSE", "0.039444"], ["PSNR", "15.681501"], ["SSIM", "0.610758"], ["Delta E", "29.645203"]],
+        "table": [["Metric", "Baseline mean +/- SD"], ["MSE", "0.039873 +/- 0.001756"], ["PSNR", "15.780514 +/- 0.187075"], ["SSIM", "0.657180 +/- 0.015721"], ["Delta E", "28.380208 +/- 1.320879"]],
         "figures": [(COLAB_RESULTS / "baseline_full" / "baseline_comparison_grid.png", "Baseline restoration examples from the fixed test split.")],
         "notes": ["This model is the default U-Net diffusion baseline, not the proposed contribution."],
     },
@@ -75,38 +75,37 @@ CHECKPOINTS = [
         "completed": [
             "Implemented residual blocks and residual denoising backbone.",
             "Trained the residual model using the same paired split and objective.",
-            "Compared residual and baseline outputs on the same 368 test images.",
+            "Compared residual and baseline outputs across three seeds on the same 384 test images.",
         ],
-        "table": [["Metric", "U-Net 128/50", "Residual 128/50"], ["MSE", "0.039444", "0.035727"], ["PSNR", "15.681501", "16.304393"], ["SSIM", "0.610758", "0.788963"], ["Delta E", "29.645203", "26.840257"]],
+        "table": [["Metric", "U-Net mean +/- SD", "Residual mean +/- SD"], ["MSE", "0.039873 +/- 0.001756", "0.038782 +/- 0.003119"], ["PSNR", "15.780514 +/- 0.187075", "16.006089 +/- 0.267086"], ["SSIM", "0.657180 +/- 0.015721", "0.779948 +/- 0.006607"], ["Delta E", "28.380208 +/- 1.320879", "27.053617 +/- 1.081249"]],
         "figures": [(REPORT_OUTPUTS / "compact_default_comparison.png", "Matching default U-Net and residual restoration examples.")],
-        "notes": ["Residual improves default-baseline SSIM by 29.18% and reduces Delta E by 9.46%."],
+        "notes": ["Residual has better mean SSIM and Delta E than the default U-Net; topology, depth, and capacity differ together."],
     },
     {
         "file": "checkpoint_05_full_results.docx",
         "title": "Checkpoint 5: Full Results",
-        "objective": "Evaluate main models and ablations on the fixed 368-image test split.",
-        "key_message": "The complete result table uses the same test split for every quantitative claim.",
+        "objective": "Evaluate the three main models on the grouped 384-image test split across three seeds.",
+        "key_message": "Every final quantitative claim uses the same grouped test list and reports mean +/- sample SD.",
         "completed": [
             "Evaluated 128x128 50-epoch baseline and residual models.",
-            "Evaluated 100-epoch training variants.",
-            "Evaluated 256x256 resolution variants.",
-            "Generated final metric summary and plots.",
+            "Evaluated default, parameter-matched, and residual models across three seeds.",
+            "Generated grouped aggregate metric summary.",
         ],
-        "table": [["Experiment", "PSNR", "SSIM", "Delta E"], ["U-Net 128/50", "15.681501", "0.610758", "29.645203"], ["Matched U-Net 128/50", "16.356273", "0.746291", "27.225774"], ["Residual 128/50", "16.304393", "0.788963", "26.840257"], ["U-Net 128/100", "15.976561", "0.623376", "28.571008"], ["Residual 128/100", "16.352538", "0.785447", "26.866293"], ["U-Net 256/50", "15.749889", "0.609380", "29.117468"], ["Residual 256/50", "15.900427", "0.807967", "27.078848"]],
+        "table": [["Experiment", "PSNR mean +/- SD", "SSIM mean +/- SD", "Delta E mean +/- SD"], ["U-Net", "15.780514 +/- 0.187075", "0.657180 +/- 0.015721", "28.380208 +/- 1.320879"], ["Matched U-Net", "16.017719 +/- 0.277610", "0.722221 +/- 0.022096", "27.590478 +/- 2.280969"], ["Residual", "16.006089 +/- 0.267086", "0.779948 +/- 0.006607", "27.053617 +/- 1.081249"]],
         "figures": [(REPORT_OUTPUTS / "training_loss_curves.png", "Training and validation loss curves."), (REPORT_OUTPUTS / "delta_e_cie76_comparison.png", "Delta E comparison across experiments.")],
-        "notes": ["Longer training helps the baseline but does not make it structurally stronger than the residual model."],
+        "notes": ["Earlier duration and resolution ablations used the superseded split and are excluded from final claims."],
     },
     {
         "file": "checkpoint_06_ablation_generalization.docx",
         "title": "Checkpoint 6: Parameter-Matched Capacity Control",
         "objective": "Check whether the main architecture comparison is explained by parameter count.",
-        "key_message": "The capacity-control result makes the final claim honest: residual is not best on every metric, but remains best on SSIM, Delta E, and entropy.",
+        "key_message": "The capacity control makes the final claim honest: matched U-Net leads pixel metrics while residual leads mean SSIM and Delta E.",
         "completed": [
             "Completed parameter-matched U-Net capacity control with base_channels=42.",
             "Compared parameter-matched U-Net with the residual model.",
             "Qualified the final conclusion using metric-specific capacity-control evidence.",
         ],
-        "table": [["Metric", "Matched U-Net", "Residual", "Better"], ["MSE", "0.034294", "0.035727", "Matched U-Net"], ["PSNR", "16.356273", "16.304393", "Matched U-Net"], ["SSIM", "0.746291", "0.788963", "Residual"], ["Delta E", "27.225774", "26.840257", "Residual"], ["Entropy", "4.790907", "4.368050", "Residual"]],
+        "table": [["Metric", "Matched U-Net", "Residual", "Mean leader"], ["MSE", "0.038056 +/- 0.002727", "0.038782 +/- 0.003119", "Matched U-Net"], ["PSNR", "16.017719 +/- 0.277610", "16.006089 +/- 0.267086", "Matched U-Net"], ["SSIM", "0.722221 +/- 0.022096", "0.779948 +/- 0.006607", "Residual"], ["Delta E", "27.590478 +/- 2.280969", "27.053617 +/- 1.081249", "Residual"], ["Entropy", "4.946796 +/- 0.060048", "4.565555 +/- 0.202586", "Descriptive only"]],
         "figures": [(REPORT_OUTPUTS / "compact_capacity_comparison.png", "Matching parameter-matched U-Net and residual restoration examples.")],
         "notes": ["The residual model leads on SSIM and Delta E; the matched U-Net leads on MSE, MAE, and PSNR."],
     },
@@ -125,10 +124,6 @@ def main() -> None:
             "Checkpoint result documents are frozen historical artifacts until the grouped 3-model x 3-seed matrix completes. "
             f"Expected: {GROUPED_SUMMARY}"
         )
-    raise RuntimeError(
-        "Grouped results exist, but the checkpoint narratives still contain superseded random-split metrics. "
-        "Update CHECKPOINTS from the grouped aggregate before regenerating the documents."
-    )
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for checkpoint in CHECKPOINTS:
