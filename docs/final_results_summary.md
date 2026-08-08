@@ -1,5 +1,7 @@
 # Final Results Summary
 
+> **Superseded:** The values in this document use the original filename-random split. A later audit found source-chart overlap and exact-pair duplicates across partitions. Do not cite these values as final evidence. Replacement `grouped_v1_contiguous_24` results will be reported as mean and sample standard deviation across seeds 42, 123, and 2026.
+
 This document summarizes the frozen experimental results for the final report.
 
 ## Completed Experiments

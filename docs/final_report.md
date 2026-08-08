@@ -1,5 +1,7 @@
 # Enhancing Diffusion-Based Underwater Image Restoration with Residual Networks
 
+> **Superseded draft:** This Markdown report contains results from the original filename-random split. A later audit found source-chart overlap and exact-pair duplicates across partitions. Do not submit or cite its quantitative claims. It will be regenerated after the grouped three-model, three-seed experiment matrix completes.
+
 Student ID: 150210321
 
 ## Abstract

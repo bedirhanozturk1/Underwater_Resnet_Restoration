@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import random
 import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -20,6 +23,8 @@ from src.training.losses import noise_prediction_loss
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a baseline or residual conditional diffusion denoising model.")
     parser.add_argument("--model", choices=("baseline", "residual"), required=True)
+    parser.add_argument("--run-name", default=None, help="Unique output name; defaults to the model name.")
+    parser.add_argument("--split-id", default="unspecified")
     parser.add_argument("--clear-dir", type=Path, default=Path("/content/drive/MyDrive/underwater_resnet_project/datasets/clear_underwater_color_patch/canon_patch"))
     parser.add_argument("--turbid-dir", type=Path, default=Path("/content/drive/MyDrive/underwater_resnet_project/datasets/turbidty_underwater_color_patch"))
     parser.add_argument("--split-dir", type=Path, default=Path("/content/drive/MyDrive/underwater_resnet_project/splits"))
@@ -43,11 +48,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    random.seed(args.seed)
+    np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    run_checkpoint_dir = args.checkpoint_dir / args.model
-    run_log_dir = args.log_dir / args.model
+    run_name = args.run_name or args.model
+    run_checkpoint_dir = args.checkpoint_dir / run_name
+    run_log_dir = args.log_dir / run_name
     run_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     run_log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -60,11 +70,35 @@ def main() -> None:
     start_epoch = 1
     best_val_loss = float("inf")
     if args.resume is not None:
-        checkpoint = torch.load(args.resume, map_location=device)
+        checkpoint = torch.load(args.resume, map_location=device, weights_only=False)
+        expected_metadata = {
+            "model": args.model,
+            "run_name": run_name,
+            "seed": args.seed,
+            "split_id": args.split_id,
+            "image_size": args.image_size,
+            "timesteps": args.timesteps,
+            "base_channels": args.base_channels,
+        }
+        mismatches = {
+            key: (checkpoint.get(key), expected)
+            for key, expected in expected_metadata.items()
+            if checkpoint.get(key) != expected
+        }
+        if mismatches:
+            raise ValueError(f"Resume checkpoint metadata does not match this run: {mismatches}")
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = int(checkpoint["epoch"]) + 1
         best_val_loss = float(checkpoint.get("best_val_loss", best_val_loss))
+        if "python_random_state" in checkpoint:
+            random.setstate(checkpoint["python_random_state"])
+        if "numpy_random_state" in checkpoint:
+            np.random.set_state(checkpoint["numpy_random_state"])
+        if "torch_rng_state" in checkpoint:
+            torch.set_rng_state(checkpoint["torch_rng_state"])
+        if torch.cuda.is_available() and checkpoint.get("cuda_rng_states") is not None:
+            torch.cuda.set_rng_state_all(checkpoint["cuda_rng_states"])
         print(f"Resumed from {args.resume} at epoch {start_epoch}")
 
     log_path = run_log_dir / "training.csv"
@@ -108,6 +142,9 @@ def main() -> None:
 
         checkpoint = {
             "model": args.model,
+            "run_name": run_name,
+            "seed": args.seed,
+            "split_id": args.split_id,
             "epoch": epoch,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
@@ -116,12 +153,34 @@ def main() -> None:
             "timesteps": args.timesteps,
             "base_channels": args.base_channels,
             "time_dim": args.time_dim,
+            "batch_size": args.batch_size,
+            "epochs": args.epochs,
+            "learning_rate": args.lr,
+            "train_split": str(args.split_dir / "train.txt"),
+            "val_split": str(args.split_dir / "val.txt"),
+            "python_random_state": random.getstate(),
+            "numpy_random_state": np.random.get_state(),
+            "torch_rng_state": torch.get_rng_state(),
+            "cuda_rng_states": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
         }
         torch.save(checkpoint, run_checkpoint_dir / "latest.pth")
         if is_best:
             torch.save(checkpoint, run_checkpoint_dir / "best.pth")
 
         print(f"epoch {epoch}/{args.epochs} train_loss={train_loss:.6f} val_loss={val_loss:.6f} best={best_val_loss:.6f}", flush=True)
+
+    completion = {
+        "run_name": run_name,
+        "model": args.model,
+        "seed": args.seed,
+        "split_id": args.split_id,
+        "epochs": args.epochs,
+        "best_val_loss": best_val_loss,
+    }
+    (run_checkpoint_dir / "completed.json").write_text(
+        json.dumps(completion, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _make_loader(args: argparse.Namespace, split: str, shuffle: bool) -> DataLoader:

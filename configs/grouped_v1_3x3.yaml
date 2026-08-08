@@ -1,0 +1,28 @@
+experiment_name: grouped_v1_3x3
+split:
+  id: grouped_v1_contiguous_24
+  source_group_size: 24
+  assignment: contiguous
+  exact_pair_deduplication: true
+models:
+  - run_name: baseline_b32
+    model: baseline
+    base_channels: 32
+  - run_name: param_matched_unet_b42
+    model: baseline
+    base_channels: 42
+  - run_name: residual_b32
+    model: residual
+    base_channels: 32
+training:
+  seeds: [42, 123, 2026]
+  image_size: 128
+  batch_size: 16
+  epochs: 50
+  learning_rate: 0.0001
+  diffusion_timesteps: 100
+evaluation:
+  seed: 2026
+paths:
+  drive_root: /content/drive/MyDrive/underwater_resnet_project
+  experiment_root: /content/drive/MyDrive/underwater_resnet_project/experiments/grouped_v1

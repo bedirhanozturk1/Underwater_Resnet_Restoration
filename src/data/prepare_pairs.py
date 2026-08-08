@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import random
+from collections import defaultdict
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Iterable
 
@@ -88,6 +90,80 @@ def split_pairs(
         "val": sorted(shuffled[train_end:val_end], key=_natural_key),
         "test": sorted(shuffled[val_end:], key=_natural_key),
     }
+
+
+def split_contiguous_source_groups(
+    filenames: Iterable[str],
+    group_size: int = 24,
+    train_ratio: float = 0.8,
+    val_ratio: float = 0.1,
+) -> tuple[dict[str, list[str]], dict[str, int]]:
+    """Split ordered numeric filenames without separating source groups."""
+    if group_size <= 0:
+        raise ValueError("group_size must be positive")
+    if train_ratio <= 0 or val_ratio < 0 or train_ratio + val_ratio >= 1:
+        raise ValueError("Expected train_ratio > 0, val_ratio >= 0, and train_ratio + val_ratio < 1")
+
+    ordered = sorted(filenames, key=_natural_key)
+    if not ordered:
+        raise ValueError("No filenames were provided for splitting")
+
+    numeric_ids: list[int] = []
+    for filename in ordered:
+        try:
+            numeric_ids.append(int(Path(filename).stem))
+        except ValueError as exc:
+            raise ValueError(f"Expected numeric filename stem, got: {filename}") from exc
+    if numeric_ids != list(range(len(numeric_ids))):
+        raise ValueError("Grouped splitting requires consecutive numeric filenames starting at 0")
+    if len(ordered) % group_size:
+        raise ValueError(f"Expected image count to be divisible by group_size={group_size}")
+
+    groups = [ordered[start:start + group_size] for start in range(0, len(ordered), group_size)]
+    train_end = int(len(groups) * train_ratio)
+    val_end = train_end + int(len(groups) * val_ratio)
+    grouped = {
+        "train": groups[:train_end],
+        "val": groups[train_end:val_end],
+        "test": groups[val_end:],
+    }
+    splits = {name: [filename for group in selected for filename in group] for name, selected in grouped.items()}
+    source_groups = {filename: numeric_id // group_size for filename, numeric_id in zip(ordered, numeric_ids)}
+    return splits, source_groups
+
+
+def remove_exact_pair_duplicates(
+    splits: dict[str, list[str]],
+    pair_paths: dict[str, tuple[Path, Path]],
+) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """Keep one copy of each exact clear+turbid pair, preferring holdout splits."""
+    split_priority = {"train": 0, "val": 1, "test": 2}
+    occurrences: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for split_name, filenames in splits.items():
+        for filename in filenames:
+            clear_path, turbid_path = pair_paths[filename]
+            clear_digest = sha256(clear_path.read_bytes()).digest()
+            turbid_digest = sha256(turbid_path.read_bytes()).digest()
+            digest = sha256(clear_digest + turbid_digest).hexdigest()
+            occurrences[digest].append((split_name, filename))
+
+    removed: dict[str, str] = {}
+    for duplicates in occurrences.values():
+        if len(duplicates) < 2:
+            continue
+        keep_split, keep_filename = max(
+            duplicates,
+            key=lambda item: (split_priority[item[0]], -int(Path(item[1]).stem)),
+        )
+        for split_name, filename in duplicates:
+            if (split_name, filename) != (keep_split, keep_filename):
+                removed[filename] = f"exact duplicate of {keep_filename} retained in {keep_split}"
+
+    cleaned = {
+        split_name: [filename for filename in filenames if filename not in removed]
+        for split_name, filenames in splits.items()
+    }
+    return cleaned, removed
 
 
 def write_splits(splits: dict[str, list[str]], output_dir: Path) -> None:
