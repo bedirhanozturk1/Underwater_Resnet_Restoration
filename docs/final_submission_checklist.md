@@ -7,7 +7,8 @@ Use this checklist before uploading/submitting the project.
 - GitHub repository: `https://github.com/bedirhanozturk1/Underwater_Resnet_Restoration.git`
 - Final report source text: `docs/final_report.md`
 - Final experiment summary: `docs/final_results_summary.md`
-- Supervisor checkpoint documents: `docs/supervisor_checkpoints/`
+- Supervisor checkpoint Word documents: `docs/supervisor_checkpoints/checkpoint_*.docx`
+- Supervisor checkpoint PDF exports: `docs/supervisor_checkpoints/pdf/checkpoint_*.pdf`
 - Colab workflow notebook: `notebooks/colab_training.ipynb`
 - Training/evaluation/inference scripts: `scripts/`
 - Main implementation code: `src/`
