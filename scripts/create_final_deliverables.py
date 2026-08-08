@@ -19,6 +19,7 @@ REPORT_OUTPUTS = PROJECT_ROOT / "report_outputs"
 REPORT_ASSETS = PROJECT_ROOT / "report_assets"
 COLAB_RESULTS = PROJECT_ROOT / "colab_results"
 DELIVERABLES = PROJECT_ROOT / "final_deliverables"
+REPORT_TEMPLATE = PROJECT_ROOT / "myfriendsproject" / "04-4902-Project_Report_Template.docx"
 
 
 def main() -> None:
@@ -31,11 +32,21 @@ def main() -> None:
 
 
 def create_docx_report() -> None:
-    doc = Document()
+    doc = Document(REPORT_TEMPLATE) if REPORT_TEMPLATE.exists() else Document()
     setup_document(doc)
-    add_cover(doc)
+    rebuild_template_cover_and_body(doc)
+    output = DELIVERABLES / "final_report_150210321.docx"
+    try:
+        doc.save(output)
+    except PermissionError:
+        doc.save(DELIVERABLES / "final_report_150210321_template.docx")
+
+
+def rebuild_template_cover_and_body(doc: Document) -> None:
+    replace_template_cover(doc)
+    replace_template_contents(doc)
+    remove_template_body(doc)
     add_summary(doc)
-    add_table_of_contents(doc)
     add_introduction(doc)
     add_background(doc)
     add_system_design(doc)
@@ -46,7 +57,6 @@ def create_docx_report() -> None:
     add_conclusion(doc)
     add_references(doc)
     add_appendix(doc)
-    doc.save(DELIVERABLES / "final_report_150210321.docx")
 
 
 def setup_document(doc: Document) -> None:
@@ -67,25 +77,77 @@ def setup_document(doc: Document) -> None:
     styles["Heading 2"].font.bold = True
 
 
-def add_cover(doc: Document) -> None:
-    add_centered(doc, "ISTANBUL TECHNICAL UNIVERSITY", 14, bold=True)
-    add_centered(doc, "Faculty of Computer and Informatics Engineering", 12)
-    add_spacer(doc, 5)
-    add_centered(doc, "Enhancing Diffusion-Based Underwater Image Restoration", 20, bold=True)
-    add_centered(doc, "with Residual Networks", 20, bold=True)
-    add_spacer(doc, 3)
-    add_centered(doc, "Final Project Report", 15, bold=True)
-    add_spacer(doc, 4)
-    add_centered(doc, "Student ID: 150210321", 12)
-    add_centered(doc, "GitHub Repository", 12, bold=True)
-    add_centered(doc, "https://github.com/bedirhanozturk1/Underwater_Resnet_Restoration", 10)
-    add_spacer(doc, 5)
-    add_centered(doc, "August 2026", 12)
-    doc.add_page_break()
+def replace_template_cover(doc: Document) -> None:
+    replacements = {
+        "Artifical Intelligence & Data Engineering": "Artifical Intelligence & Data Engineering",
+        "Design Project Report": "Design Project Report",
+        "Title": "Title",
+        "Building A Large Language Model Based Artificial General Intelligence (AGI) System": "Enhancing Diffusion-Based Underwater Image Restoration with Residual Networks",
+        "Prepared By": "Prepared By",
+        "15010000 Elon MUSK": "150210321 Bedirhan OZTURK",
+        "15010001 Bill GATES": "",
+        "Supervisor": "Supervisor",
+        "Assoc. Prof. Dr. A. Cüneyd TANTUĞ": "Prof. Dr. Behcet Ugur Toreyin",
+        "May, 2024": "August, 2026",
+    }
+    for paragraph in doc.paragraphs:
+        text = paragraph.text.strip()
+        if text in replacements:
+            set_paragraph_text(paragraph, replacements[text], keep_style=True)
+
+
+def replace_template_contents(doc: Document) -> None:
+    replacements = {
+        "1\tINTRODUCTION\t1": "1\tINTRODUCTION\t1",
+        "2\tBACKGROUND\t2": "2\tBACKGROUND\t3",
+        "3\tSYSTEM REQUIREMENTS\t3": "3\tSYSTEM DESIGN\t4",
+        "3.1\tDesign Constraints and Relevant Engineering Standards\t3": "3.1\tTask Definition\t4",
+        "3.2\tFunctional Requirements\t3": "3.2\tDataset Split\t4",
+        "3.3\tNon-Functional Requirements\t3": "4\tIMPLEMENTATION\t5",
+        "3.4\tEvaluation Criteria\t3": "5\tEXPERIMENTAL SETUP\t6",
+        "4\tSYSTEM ARCHITECTURE\t4": "6\tRESULTS\t7",
+        "5\tRESULTS AND EVALUATION\t5": "7\tDISCUSSION AND LIMITATIONS\t10",
+        "6\tCONCLUSIONS AND FUTURE WORKS\t6": "8\tCONCLUSION\t11",
+        "7\tREFERENCES\t7": "9\tREFERENCES\t12",
+    }
+    for paragraph in doc.paragraphs:
+        text = paragraph.text.strip()
+        if text in replacements:
+            set_paragraph_text(paragraph, replacements[text], keep_style=True)
+            first = replacements[text].split("\t", 1)[0]
+            if "." in first:
+                paragraph.style = "toc 2"
+            else:
+                paragraph.style = "toc 1"
+
+
+def remove_template_body(doc: Document) -> None:
+    start = None
+    for index, paragraph in enumerate(doc.paragraphs):
+        if paragraph.text.strip() == "SUMMARY":
+            start = index
+            break
+    if start is None:
+        doc.add_page_break()
+        return
+    for paragraph in list(doc.paragraphs[start:]):
+        element = paragraph._element
+        element.getparent().remove(element)
+
+
+def set_paragraph_text(paragraph, text: str, keep_style: bool = True) -> None:
+    style = paragraph.style if keep_style else None
+    alignment = paragraph.alignment
+    paragraph.clear()
+    if style is not None:
+        paragraph.style = style
+    paragraph.alignment = alignment
+    if text:
+        paragraph.add_run(text)
 
 
 def add_summary(doc: Document) -> None:
-    heading(doc, "SUMMARY")
+    preamble_heading(doc, "SUMMARY")
     para(
         doc,
         "This project studies underwater image restoration with a conditional diffusion model. "
@@ -112,7 +174,7 @@ def add_summary(doc: Document) -> None:
 
 
 def add_table_of_contents(doc: Document) -> None:
-    heading(doc, "CONTENTS")
+    preamble_heading(doc, "CONTENTS")
     rows = [
         ("1", "INTRODUCTION"),
         ("2", "BACKGROUND"),
@@ -131,7 +193,7 @@ def add_table_of_contents(doc: Document) -> None:
 
 
 def add_introduction(doc: Document) -> None:
-    heading(doc, "1. INTRODUCTION")
+    heading(doc, "INTRODUCTION")
     para(
         doc,
         "Underwater images are degraded by light absorption, scattering, turbidity, and color distortion. "
@@ -155,21 +217,21 @@ def add_introduction(doc: Document) -> None:
 
 
 def add_background(doc: Document) -> None:
-    heading(doc, "2. BACKGROUND")
-    subheading(doc, "2.1 Underwater Image Degradation")
+    heading(doc, "BACKGROUND")
+    subheading(doc, "Underwater Image Degradation")
     para(
         doc,
         "Underwater degradation is not ordinary noise. Red wavelengths disappear faster, suspended particles scatter light, "
         "and turbidity reduces local contrast. This produces blurred edges, color shifts, and haze-like artifacts.",
     )
-    subheading(doc, "2.2 U-Net And Residual Networks")
+    subheading(doc, "U-Net And Residual Networks")
     para(
         doc,
         "U-Net is a strong image-to-image baseline because encoder-decoder processing and skip connections preserve spatial "
         "information. Residual networks add identity shortcuts and learn refinements, which can help preserve structure while "
         "correcting degradations.",
     )
-    subheading(doc, "2.3 Diffusion Restoration")
+    subheading(doc, "Diffusion Restoration")
     para(
         doc,
         "In denoising diffusion, noise is added to a target image during training and the network learns to predict that noise. "
@@ -179,11 +241,11 @@ def add_background(doc: Document) -> None:
 
 
 def add_system_design(doc: Document) -> None:
-    heading(doc, "3. SYSTEM DESIGN")
-    subheading(doc, "3.1 Task Definition")
+    heading(doc, "SYSTEM DESIGN")
+    subheading(doc, "Task Definition")
     add_table(doc, [["Input", "Output", "Learning Type"], ["Turbid underwater patch", "Clear/reference patch", "Supervised paired restoration"]])
     para(doc, "The model learns the paired mapping from turbid input to clear reference image through diffusion denoising.")
-    subheading(doc, "3.2 Dataset Split")
+    subheading(doc, "Dataset Split")
     add_table(doc, [["Split", "Image Pairs"], ["Training", "2937"], ["Validation", "367"], ["Test", "368"]])
     para(doc, "The split is fixed and reused for every quantitative result. External unpaired images are used only qualitatively.")
     add_picture(doc, REPORT_ASSETS / "candidate_pair_sheet.png", 5.8)
@@ -191,7 +253,7 @@ def add_system_design(doc: Document) -> None:
 
 
 def add_implementation(doc: Document) -> None:
-    heading(doc, "4. IMPLEMENTATION")
+    heading(doc, "IMPLEMENTATION")
     para(doc, "The implementation is organized as a reproducible PyTorch project with separate scripts for training, evaluation, and inference.")
     add_table(
         doc,
@@ -209,7 +271,7 @@ def add_implementation(doc: Document) -> None:
 
 
 def add_experiments(doc: Document) -> None:
-    heading(doc, "5. EXPERIMENTAL SETUP")
+    heading(doc, "EXPERIMENTAL SETUP")
     add_table(
         doc,
         [
@@ -231,8 +293,8 @@ def add_experiments(doc: Document) -> None:
 
 
 def add_results(doc: Document) -> None:
-    heading(doc, "6. RESULTS")
-    subheading(doc, "6.1 Full Test Metrics")
+    heading(doc, "RESULTS")
+    subheading(doc, "Full Test Metrics")
     add_metric_summary_table(doc)
     para(doc, "All numbers are computed on the same 368-image paired test split.")
     add_picture(doc, REPORT_OUTPUTS / "training_loss_curves.png", 5.8)
@@ -242,7 +304,7 @@ def add_results(doc: Document) -> None:
     add_picture(doc, REPORT_OUTPUTS / "delta_e_cie76_comparison.png", 5.6)
     caption(doc, "Figure 6. CIE76 Delta E comparison. Lower is better.")
 
-    subheading(doc, "6.2 Main Interpretation")
+    subheading(doc, "Main Interpretation")
     para(
         doc,
         "At 128x128 and 50 epochs, the residual backbone improves over the default U-Net baseline. It lowers MSE by 9.42%, "
@@ -256,7 +318,7 @@ def add_results(doc: Document) -> None:
         "not a universal win for one architecture on every metric.",
     )
 
-    subheading(doc, "6.3 Qualitative Results")
+    subheading(doc, "Qualitative Results")
     add_picture(doc, COLAB_RESULTS / "residual_full" / "residual_comparison_grid.png", 6.0)
     caption(doc, "Figure 7. Residual model test-set examples: turbid input, restored output, and clear reference.")
     add_picture(doc, COLAB_RESULTS / "param_matched_unet" / "results" / "baseline_full" / "baseline_comparison_grid.png", 6.0)
@@ -264,7 +326,7 @@ def add_results(doc: Document) -> None:
 
 
 def add_discussion(doc: Document) -> None:
-    heading(doc, "7. DISCUSSION AND LIMITATIONS")
+    heading(doc, "DISCUSSION AND LIMITATIONS")
     para(
         doc,
         "The residual backbone is especially strong on SSIM and Delta E. This suggests better structural consistency and lower "
@@ -283,7 +345,7 @@ def add_discussion(doc: Document) -> None:
 
 
 def add_conclusion(doc: Document) -> None:
-    heading(doc, "8. CONCLUSION")
+    heading(doc, "CONCLUSION")
     para(
         doc,
         "This project implemented a conditional diffusion underwater restoration pipeline and compared a standard U-Net "
@@ -300,7 +362,7 @@ def add_conclusion(doc: Document) -> None:
 
 
 def add_references(doc: Document) -> None:
-    heading(doc, "9. REFERENCES")
+    heading(doc, "REFERENCES")
     refs = [
         "[1] J. Ho, A. Jain, and P. Abbeel, Denoising Diffusion Probabilistic Models, NeurIPS, 2020.",
         "[2] O. Ronneberger, P. Fischer, and T. Brox, U-Net: Convolutional Networks for Biomedical Image Segmentation, MICCAI, 2015.",
@@ -313,13 +375,13 @@ def add_references(doc: Document) -> None:
 
 
 def add_appendix(doc: Document) -> None:
-    heading(doc, "10. APPENDIX")
-    subheading(doc, "10.1 Pixel-Wise Metric Plots")
+    heading(doc, "APPENDIX")
+    subheading(doc, "Pixel-Wise Metric Plots")
     add_picture(doc, REPORT_OUTPUTS / "mse_comparison.png", 5.6)
     caption(doc, "Figure 9. MSE comparison. Lower is better.")
     add_picture(doc, REPORT_OUTPUTS / "psnr_comparison.png", 5.6)
     caption(doc, "Figure 10. PSNR comparison. Higher is better.")
-    subheading(doc, "10.2 Repository And Deliverables")
+    subheading(doc, "Repository And Deliverables")
     para(doc, "Repository: https://github.com/bedirhanozturk1/Underwater_Resnet_Restoration")
     para(doc, "Final report, presentation, checkpoint documents, metric CSV files, plots, and qualitative grids are stored in the project deliverable folders.")
 
@@ -357,6 +419,17 @@ def heading(doc: Document, text: str) -> None:
     p.paragraph_format.space_after = Pt(6)
 
 
+def preamble_heading(doc: Document, text: str) -> None:
+    p = doc.add_paragraph()
+    try:
+        p.style = "Preamble Title"
+    except KeyError:
+        p.style = "Heading 1"
+    p.paragraph_format.space_before = Pt(8)
+    p.paragraph_format.space_after = Pt(6)
+    p.add_run(text)
+
+
 def subheading(doc: Document, text: str) -> None:
     p = doc.add_heading(text, level=2)
     p.paragraph_format.space_before = Pt(6)
@@ -373,9 +446,14 @@ def para(doc: Document, text: str) -> None:
 
 
 def bullet(doc: Document, text: str) -> None:
-    p = doc.add_paragraph(style="List Bullet")
+    try:
+        p = doc.add_paragraph(style="List Bullet")
+        prefix = ""
+    except KeyError:
+        p = doc.add_paragraph()
+        prefix = "- "
     p.paragraph_format.space_after = Pt(2)
-    p.add_run(text)
+    p.add_run(prefix + text)
 
 
 def add_centered(doc: Document, text: str, size: int, bold: bool = False) -> None:
@@ -510,6 +588,8 @@ This folder contains the final local deliverables.
 
 - `final_report_150210321.docx`: editable final report.
 - `final_report_150210321.pdf`: PDF export of the final report.
+- `final_report_150210321_template.docx`: template-based report fallback if the main DOCX is open/locked.
+- `final_report_150210321_template.pdf`: PDF export of the template-based fallback report.
 - `final_presentation_150210321.pptx`: editable final presentation.
 - `final_presentation_150210321.pdf`: PDF export of the presentation.
 - `final_presentation_outline.md`: short slide outline.
