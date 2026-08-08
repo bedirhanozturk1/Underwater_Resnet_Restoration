@@ -3,19 +3,19 @@ model:
   name: conditional_unet
   in_channels: 6
   out_channels: 3
-  base_channels: 64
+  base_channels: 32
 diffusion:
-  timesteps: 300
-  sampling_steps: 50
+  timesteps: 100
+  sampling_steps: 100
 training:
   image_size: 128
-  batch_size: 2
-  epochs: 5
+  batch_size: 16
+  epochs: 50
   learning_rate: 0.0001
   seed: 42
 paths:
-  dataset_root: data/datasets
-  split_dir: data/splits
-  checkpoint_dir: checkpoints/baseline_unet
-  result_dir: results/baseline_unet
-  log_dir: logs/baseline_unet
+  dataset_root: /content/drive/MyDrive/underwater_resnet_project/datasets
+  split_dir: /content/drive/MyDrive/underwater_resnet_project/splits
+  checkpoint_dir: /content/drive/MyDrive/underwater_resnet_project/checkpoints/baseline
+  result_dir: /content/drive/MyDrive/underwater_resnet_project/results/evaluation/baseline_full
+  log_dir: /content/drive/MyDrive/underwater_resnet_project/logs/baseline

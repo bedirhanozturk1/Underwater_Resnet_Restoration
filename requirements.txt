@@ -8,4 +8,5 @@ pyyaml
 scikit-image
 matplotlib
 pandas
+python-docx
 pytest

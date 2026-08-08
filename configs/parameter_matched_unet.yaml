@@ -1,0 +1,21 @@
+experiment_name: parameter_matched_unet
+model:
+  name: conditional_unet
+  in_channels: 6
+  out_channels: 3
+  base_channels: 42
+diffusion:
+  timesteps: 100
+  sampling_steps: 100
+training:
+  image_size: 128
+  batch_size: 16
+  epochs: 50
+  learning_rate: 0.0001
+  seed: 42
+paths:
+  dataset_root: /content/drive/MyDrive/underwater_resnet_project/datasets
+  split_dir: /content/drive/MyDrive/underwater_resnet_project/splits
+  checkpoint_dir: /content/drive/MyDrive/underwater_resnet_project/experiments/param_matched_unet/checkpoints/baseline
+  result_dir: /content/drive/MyDrive/underwater_resnet_project/experiments/param_matched_unet/results/baseline_full
+  log_dir: /content/drive/MyDrive/underwater_resnet_project/experiments/param_matched_unet/logs/baseline
