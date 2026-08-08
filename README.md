@@ -19,17 +19,17 @@ Proposed residual-backbone diffusion
 Parameter-matched U-Net capacity control
 ```
 
-## Superseded Result Summary
+## Final Grouped Results
 
-The values below came from the original filename-random split. Dataset auditing later found source-chart overlap and exact-pair duplicates across partitions. These values are retained only as historical records and must not be cited as final evidence.
+All values below use the grouped held-out split and are reported as mean +/- sample standard deviation across seeds `42`, `123`, and `2026`.
 
 | Experiment | MSE | MAE | PSNR | SSIM | Delta E | Entropy |
 |---|---:|---:|---:|---:|---:|---:|
-| Baseline U-Net, 128, 50 epoch | 0.039444 | 0.168026 | 15.681501 | 0.610758 | 29.645203 | 5.095362 |
-| Parameter-matched U-Net, 128, 50 epoch | 0.034294 | 0.155805 | 16.356273 | 0.746291 | 27.225774 | 4.790907 |
-| Residual backbone, 128, 50 epoch | 0.035727 | 0.159895 | 16.304393 | 0.788963 | 26.840257 | 4.368050 |
+| Default U-Net | 0.039873 +/- 0.001756 | 0.168557 +/- 0.002959 | 15.780514 +/- 0.187075 | 0.657180 +/- 0.015721 | 28.380208 +/- 1.320879 | 4.890910 +/- 0.035327 |
+| Parameter-matched U-Net | 0.038056 +/- 0.002727 | 0.164164 +/- 0.005644 | 16.017719 +/- 0.277610 | 0.722221 +/- 0.022096 | 27.590478 +/- 2.280969 | 4.946796 +/- 0.060048 |
+| Residual backbone | 0.038782 +/- 0.003119 | 0.166746 +/- 0.006585 | 16.006089 +/- 0.267086 | 0.779948 +/- 0.006607 | 27.053617 +/- 1.081249 | 4.565555 +/- 0.202586 |
 
-Replacement experiments use contiguous 24-patch source groups, global exact-pair deduplication, and three training seeds for each of the three principal models. New results will be summarized under the Drive experiment directory after the matrix completes.
+The parameter-matched U-Net leads mean MSE, MAE, and PSNR. The residual backbone leads mean SSIM and Delta E. Entropy is retained as a descriptive diagnostic rather than a restoration-quality ranking.
 
 ## Current Evaluation Protocol
 
@@ -74,6 +74,12 @@ python scripts/create_final_deliverables.py
 ```
 
 The generated local outputs are written to `../final_deliverables/`.
+
+To reapply the approved layout to an existing manually edited report without regenerating its text:
+
+```powershell
+.\scripts\format_existing_report.ps1 -DocumentPath "..\final_deliverables\final_report_150210321.docx" -PdfPath "..\final_deliverables\final_report_150210321.pdf"
+```
 
 Supervisor checkpoint documents are available in both Word and PDF form under `docs/supervisor_checkpoints/`.
 

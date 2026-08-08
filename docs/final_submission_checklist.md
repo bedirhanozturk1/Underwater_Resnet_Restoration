@@ -5,20 +5,19 @@ Use this checklist before uploading/submitting the project.
 ## Required Items
 
 - GitHub repository: `https://github.com/bedirhanozturk1/Underwater_Resnet_Restoration.git`
-- Final report source text: `docs/final_report.md`
-- Final experiment summary: `docs/final_results_summary.md`
+- Local final Word report: `../final_deliverables/final_report_150210321.docx`
+- Local final report PDF: `../final_deliverables/final_report_150210321.pdf`
+- Final grouped experiment summary: `../metric_summary_mean_std.csv`
 - Supervisor checkpoint Word documents: `docs/supervisor_checkpoints/checkpoint_*.docx`
-- Supervisor checkpoint PDF exports: `docs/supervisor_checkpoints/pdf/checkpoint_*.pdf`
+- Supervisor checkpoint PDF exports: `docs/supervisor_checkpoints/checkpoint_*.pdf`
 - Colab workflow notebook: `notebooks/colab_training.ipynb`
 - Training/evaluation/inference scripts: `scripts/`
 - Main implementation code: `src/`
 - Tests: `tests/`
-- Local final Word report output: `final_deliverables/final_report_150210321.docx`
-- Local final report PDF: `final_deliverables/final_report_150210321.pdf`
-- Local final presentation outline: `final_deliverables/final_presentation_outline.md`
-- Local final editable presentation: `final_deliverables/final_presentation_150210321.pptx`
-- Local final presentation PDF: `final_deliverables/final_presentation_150210321.pdf`
-- Local final submission notes: `final_deliverables/README_FINAL_SUBMISSION.md`
+- Local final presentation outline: `../final_deliverables/final_presentation_outline.md`
+- Local final editable presentation: `../final_deliverables/final_presentation_150210321.pptx`
+- Local final presentation PDF: `../final_deliverables/final_presentation_150210321.pdf`
+- Local final submission notes: `../final_deliverables/README_FINAL_SUBMISSION.md`
 
 ## Result Files To Keep With The Report
 
@@ -36,7 +35,7 @@ Use this checklist before uploading/submitting the project.
 The safest final claim is:
 
 ```text
-Replacing the default conditional U-Net denoising backbone with a ResNet-style residual backbone improves structural similarity, color-difference behavior, and output smoothness compared with the default baseline. A parameter-matched U-Net capacity control shows that some pixel-wise improvements can also be obtained by increasing model capacity, while the residual backbone remains stronger on SSIM, Delta E, and entropy.
+Across the grouped three-seed evaluation, the parameter-matched U-Net leads mean MSE, MAE, and PSNR, while the residual backbone leads mean SSIM and Delta E. Entropy is descriptive only and is not used as restoration-quality evidence.
 ```
 
 ## Claims To Avoid
@@ -50,11 +49,11 @@ Replacing the default conditional U-Net denoising backbone with a ResNet-style r
 
 Question: Why did you run a parameter-matched U-Net?
 
-Answer: To check whether the residual model improvement came only from having more parameters. The result shows that increased U-Net capacity improves MSE/PSNR, but the residual model remains better on SSIM, Delta E, and entropy.
+Answer: To check whether the residual model improvement came only from having more parameters. The result shows that the matched U-Net leads mean pixel metrics, while the residual model leads mean SSIM and Delta E.
 
 Question: What is the main contribution?
 
-Answer: A controlled comparison of diffusion denoising backbones for underwater restoration, showing that a residual backbone improves structural and color-oriented restoration behavior over the default baseline.
+Answer: A leakage-controlled, capacity-aware comparison of diffusion denoising backbones for underwater restoration across three training seeds.
 
 Question: Why are external datasets qualitative only?
 

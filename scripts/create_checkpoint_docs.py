@@ -32,6 +32,12 @@ CHECKPOINTS = [
             "Created contiguous source-group split files and a duplicate audit.",
             "Separated paired training data from unpaired qualitative data.",
         ],
+        "verification": [
+            "Checked filename correspondence, readable image dimensions, and one-to-one source-target pairing before training.",
+            "Removed 32 exact duplicate records before assigning whole content groups to a single split.",
+            "Saved deterministic manifests so every later model uses the same 2,899/357/384 partition.",
+        ],
+        "decision": "Freeze the grouped manifests; use validation for model selection and reserve the test set for final reporting.",
         "table": [["Split", "Pairs"], ["Train", "2899"], ["Validation", "357"], ["Test", "384"]],
         "figures": [
             (REPORT_ASSETS / "paired_underwater_patches.png", "Example verified paired image patch."),
@@ -49,6 +55,12 @@ CHECKPOINTS = [
             "Implemented timestep sampling and linear beta schedule.",
             "Added sanity tests for dataset pairing, diffusion, and training steps.",
         ],
+        "verification": [
+            "Applied synchronized transforms to preserve pixel alignment between underwater inputs and clean references.",
+            "Validated timestep ranges, noise tensor shapes, and reverse-sampling output bounds.",
+            "Used smoke training and unit tests to detect data-model incompatibilities before full experiments.",
+        ],
+        "decision": "Keep preprocessing, diffusion schedule, training budget, and callback logic fixed for all compared backbones.",
         "table": [["Component", "Status"], ["Paired DataLoader", "Completed"], ["Forward diffusion", "Completed"], ["Unit tests", "Passing"]],
         "figures": [(REPORT_ASSETS / "proposed_pipeline.png", "Conditional diffusion restoration pipeline.")],
         "notes": ["The same diffusion objective is used for both baseline and residual models."],
@@ -63,6 +75,12 @@ CHECKPOINTS = [
             "Completed baseline training and evaluation on the fixed test split.",
             "Generated metric CSV files and qualitative comparison grids.",
         ],
+        "verification": [
+            "Selected checkpoints from validation behavior without tuning against the held-out test metrics.",
+            "Evaluated clipped predictions with shared MSE, MAE, PSNR, SSIM, and Delta E implementations.",
+            "Retained per-image outputs and a fixed qualitative grid for traceability beyond aggregate means.",
+        ],
+        "decision": "Use the default U-Net as the reference architecture and report all later gains relative to this frozen baseline.",
         "table": [["Metric", "Baseline mean +/- SD"], ["MSE", "0.039873 +/- 0.001756"], ["PSNR", "15.780514 +/- 0.187075"], ["SSIM", "0.657180 +/- 0.015721"], ["Delta E", "28.380208 +/- 1.320879"]],
         "figures": [(COLAB_RESULTS / "baseline_full" / "baseline_comparison_grid.png", "Baseline restoration examples from the fixed test split.")],
         "notes": ["This model is the default U-Net diffusion baseline, not the proposed contribution."],
@@ -77,6 +95,12 @@ CHECKPOINTS = [
             "Trained the residual model using the same paired split and objective.",
             "Compared residual and baseline outputs across three seeds on the same 384 test images.",
         ],
+        "verification": [
+            "Reused the same manifests, optimizer family, diffusion objective, evaluation code, and test tensors.",
+            "Stored each seed as an independent run before calculating model-level mean and sample standard deviation.",
+            "Checked structural and color metrics separately from pixel-error metrics to avoid a one-number conclusion.",
+        ],
+        "decision": "Advance the residual backbone to capacity-controlled comparison while qualifying topology and parameter-count differences.",
         "table": [["Metric", "U-Net mean +/- SD", "Residual mean +/- SD"], ["MSE", "0.039873 +/- 0.001756", "0.038782 +/- 0.003119"], ["PSNR", "15.780514 +/- 0.187075", "16.006089 +/- 0.267086"], ["SSIM", "0.657180 +/- 0.015721", "0.779948 +/- 0.006607"], ["Delta E", "28.380208 +/- 1.320879", "27.053617 +/- 1.081249"]],
         "figures": [(REPORT_OUTPUTS / "compact_default_comparison.png", "Matching default U-Net and residual restoration examples.")],
         "notes": ["Residual has better mean SSIM and Delta E than the default U-Net; topology, depth, and capacity differ together."],
@@ -91,6 +115,12 @@ CHECKPOINTS = [
             "Evaluated default, parameter-matched, and residual models across three seeds.",
             "Generated grouped aggregate metric summary.",
         ],
+        "verification": [
+            "Ran all three architectures with seeds 42, 123, and 2026 on the identical grouped test list.",
+            "Aggregated seed-level scores as mean +/- sample standard deviation rather than pooling test images across runs.",
+            "Cross-checked tables, plots, and qualitative examples against the machine-readable grouped summary.",
+        ],
+        "decision": "Use only the grouped three-model by three-seed matrix for final quantitative claims and keep entropy descriptive.",
         "table": [["Experiment", "PSNR mean +/- SD", "SSIM mean +/- SD", "Delta E mean +/- SD"], ["U-Net", "15.780514 +/- 0.187075", "0.657180 +/- 0.015721", "28.380208 +/- 1.320879"], ["Matched U-Net", "16.017719 +/- 0.277610", "0.722221 +/- 0.022096", "27.590478 +/- 2.280969"], ["Residual", "16.006089 +/- 0.267086", "0.779948 +/- 0.006607", "27.053617 +/- 1.081249"]],
         "figures": [(REPORT_OUTPUTS / "training_loss_curves.png", "Training and validation loss curves."), (REPORT_OUTPUTS / "delta_e_cie76_comparison.png", "Delta E comparison across experiments.")],
         "notes": ["Earlier duration and resolution ablations used the superseded split and are excluded from final claims."],
@@ -105,6 +135,12 @@ CHECKPOINTS = [
             "Compared parameter-matched U-Net with the residual model.",
             "Qualified the final conclusion using metric-specific capacity-control evidence.",
         ],
+        "verification": [
+            "Matched trainable capacity while retaining the plain U-Net topology to isolate architecture from model size.",
+            "Confirmed metric direction explicitly: lower for MSE, MAE, and Delta E; higher for PSNR and SSIM.",
+            "Recorded mixed leadership and seed variability instead of selecting a universal winner.",
+        ],
+        "decision": "Conclude that matched U-Net leads mean pixel metrics while the residual model leads mean SSIM and Delta E.",
         "table": [["Metric", "Matched U-Net", "Residual", "Mean leader"], ["MSE", "0.038056 +/- 0.002727", "0.038782 +/- 0.003119", "Matched U-Net"], ["PSNR", "16.017719 +/- 0.277610", "16.006089 +/- 0.267086", "Matched U-Net"], ["SSIM", "0.722221 +/- 0.022096", "0.779948 +/- 0.006607", "Residual"], ["Delta E", "27.590478 +/- 2.280969", "27.053617 +/- 1.081249", "Residual"], ["Entropy", "4.946796 +/- 0.060048", "4.565555 +/- 0.202586", "Descriptive only"]],
         "figures": [(REPORT_OUTPUTS / "compact_capacity_comparison.png", "Matching parameter-matched U-Net and residual restoration examples.")],
         "notes": ["The residual model leads on SSIM and Delta E; the matched U-Net leads on MSE, MAE, and PSNR."],
@@ -142,8 +178,13 @@ def write_docx(checkpoint: dict[str, object], output_path: Path) -> None:
     section(doc, "Completed Work")
     for item in checkpoint["completed"]:  # type: ignore[index]
         bullet(doc, str(item))
+    section(doc, "Verification and Controls")
+    for item in checkpoint["verification"]:  # type: ignore[index]
+        bullet(doc, str(item))
     section(doc, "Evidence")
     add_table(doc, checkpoint["table"])  # type: ignore[arg-type]
+    section(doc, "Decision / Next Gate")
+    callout(doc, str(checkpoint["decision"]))
     section(doc, "Notes")
     for item in checkpoint["notes"]:  # type: ignore[index]
         bullet(doc, str(item))
