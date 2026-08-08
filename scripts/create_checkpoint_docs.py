@@ -75,10 +75,11 @@ CHECKPOINTS = [
             "Completed 128 vs 256 resolution ablation.",
             "Completed 50 vs 100 epoch comparison.",
             "Applied residual model to unpaired turbid images and video-derived frames.",
-            "Planned parameter-matched U-Net capacity control.",
+            "Completed parameter-matched U-Net capacity control with base_channels=42.",
+            "Finalized interpretation: residual backbone is strongest on SSIM, Delta E, and entropy; parameter-matched U-Net is strongest on MSE, MAE, and PSNR.",
         ],
-        "evidence": ["Resolution ablation table", "External inference outputs", "Failure analysis examples"],
-        "next": "Freeze experiments and prepare the final report.",
+        "evidence": ["Resolution ablation table", "Capacity-control metric table", "External inference outputs", "Failure analysis examples"],
+        "next": "Submit the final report and presentation materials.",
     },
 ]
 
@@ -109,7 +110,7 @@ def _write_docx(checkpoint: dict[str, object], output_path: Path) -> None:
     for item in checkpoint["evidence"]:  # type: ignore[index]
         doc.add_paragraph(str(item), style="List Bullet")
     doc.add_heading("Limitations / Notes", level=2)
-    doc.add_paragraph("This checkpoint summarizes progress evidence. Full quantitative claims should be made only after full test-set evaluation.")
+    doc.add_paragraph("This checkpoint summarizes progress evidence. Final quantitative claims are based on the fixed 368-image paired test split.")
     doc.add_heading("Next Step", level=2)
     doc.add_paragraph(str(checkpoint["next"]))
     doc.save(output_path)
